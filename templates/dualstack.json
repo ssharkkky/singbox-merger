@@ -1,0 +1,454 @@
+{
+  "log": {
+    "disabled": false,
+    "level": "info",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "https",
+        "tag": "dns_proxy",
+        "server": "one.one.one.one",
+        "server_port": 443,
+        "path": "/dns-query",
+        "detour": "🚀 节点选择",
+        "domain_resolver": "dns_bootstrap"
+      },
+      {
+        "type": "https",
+        "tag": "dns_direct",
+        "server": "dns.alidns.com",
+        "server_port": 443,
+        "path": "/dns-query",
+        "domain_resolver": "dns_bootstrap"
+      },
+      {
+        "type": "udp",
+        "tag": "dns_bootstrap",
+        "server": "223.5.5.5",
+        "server_port": 53
+      },
+      {
+        "type": "local",
+        "tag": "dns_local"
+      }
+    ],
+    "rules": [
+      {
+        "rule_set": [
+          "geosite-category-ads-all"
+        ],
+        "action": "reject"
+      },
+      {
+        "rule_set": [
+          "geosite-cn"
+        ],
+        "server": "dns_direct"
+      },
+      {
+        "query_type": [
+          "AAAA"
+        ],
+        "rule_set": [
+          "geosite-geolocation-!cn"
+        ],
+        "action": "reject"
+      },
+      {
+        "rule_set": [
+          "geosite-geolocation-!cn"
+        ],
+        "server": "dns_proxy"
+      }
+    ],
+    "final": "dns_direct",
+    "strategy": "prefer_ipv4",
+    "optimistic": true
+  },
+  "ntp": {
+    "enabled": true,
+    "server": "time.apple.com",
+    "server_port": 123,
+    "interval": "30m",
+    "detour": "DIRECT"
+  },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "mixed-in",
+      "listen": "0.0.0.0",
+      "listen_port": 2080
+    },
+    {
+      "type": "tun",
+      "tag": "tun-in",
+      "address": [
+        "172.19.0.1/30",
+        "fdfe:dcba:9876::1/126"
+      ],
+      "mtu": 9000,
+      "auto_route": true,
+      "strict_route": true,
+      "stack": "mixed",
+      "route_exclude_address": [
+        "192.168.0.0/16",
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "100.64.0.0/10",
+        "fc00::/7",
+        "fe80::/10"
+      ]
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "selector",
+      "tag": "🚀 节点选择",
+      "outbounds": [
+        "♻️ 自动选择",
+        "🌐 IPv4 节点",
+        "🌐 IPv6 节点",
+        "🇸🇬 新加坡",
+        "🇯🇵 日本",
+        "🇺🇸 美国",
+        "DIRECT"
+      ],
+      "default": "♻️ 自动选择"
+    },
+    {
+      "type": "urltest",
+      "tag": "♻️ 自动选择",
+      "outbounds": [],
+      "url": "https://www.gstatic.com/generate_204",
+      "interval": "3m",
+      "tolerance": 50,
+      "interrupt_exist_connections": false
+    },
+    {
+      "type": "selector",
+      "tag": "🌐 IPv4 节点",
+      "outbounds": [
+        "♻️ IPv4 自动"
+      ],
+      "default": "♻️ IPv4 自动"
+    },
+    {
+      "type": "selector",
+      "tag": "🌐 IPv6 节点",
+      "outbounds": [
+        "♻️ IPv6 自动"
+      ],
+      "default": "♻️ IPv6 自动"
+    },
+    {
+      "type": "urltest",
+      "tag": "♻️ IPv4 自动",
+      "outbounds": [],
+      "url": "https://www.gstatic.com/generate_204",
+      "interval": "3m",
+      "tolerance": 50,
+      "interrupt_exist_connections": false
+    },
+    {
+      "type": "urltest",
+      "tag": "♻️ IPv6 自动",
+      "outbounds": [],
+      "url": "https://www.gstatic.com/generate_204",
+      "interval": "3m",
+      "tolerance": 50,
+      "interrupt_exist_connections": false
+    },
+    {
+      "type": "selector",
+      "tag": "🎬 Netflix",
+      "outbounds": [
+        "🚀 节点选择"
+      ],
+      "default": "🚀 节点选择"
+    },
+    {
+      "type": "selector",
+      "tag": "🍎 Apple",
+      "outbounds": [
+        "DIRECT",
+        "🚀 节点选择"
+      ],
+      "default": "DIRECT"
+    },
+    {
+      "type": "selector",
+      "tag": "🪟 Microsoft",
+      "outbounds": [
+        "DIRECT",
+        "🚀 节点选择"
+      ],
+      "default": "DIRECT"
+    },
+    {
+      "type": "selector",
+      "tag": "🎮 游戏",
+      "outbounds": [
+        "DIRECT",
+        "🚀 节点选择"
+      ],
+      "default": "🚀 节点选择"
+    },
+    {
+      "type": "selector",
+      "tag": "🇸🇬 新加坡",
+      "outbounds": [
+        "♻️ 新加坡自动"
+      ],
+      "default": "♻️ 新加坡自动"
+    },
+    {
+      "type": "urltest",
+      "tag": "♻️ 新加坡自动",
+      "outbounds": [],
+      "url": "https://www.gstatic.com/generate_204",
+      "interval": "3m",
+      "tolerance": 50,
+      "interrupt_exist_connections": false
+    },
+    {
+      "type": "selector",
+      "tag": "🇯🇵 日本",
+      "outbounds": [
+        "♻️ 日本自动"
+      ],
+      "default": "♻️ 日本自动"
+    },
+    {
+      "type": "urltest",
+      "tag": "♻️ 日本自动",
+      "outbounds": [],
+      "url": "https://www.gstatic.com/generate_204",
+      "interval": "3m",
+      "tolerance": 50,
+      "interrupt_exist_connections": false
+    },
+    {
+      "type": "selector",
+      "tag": "🇺🇸 美国",
+      "outbounds": [
+        "♻️ 美国自动"
+      ],
+      "default": "♻️ 美国自动"
+    },
+    {
+      "type": "urltest",
+      "tag": "♻️ 美国自动",
+      "outbounds": [],
+      "url": "https://www.gstatic.com/generate_204",
+      "interval": "3m",
+      "tolerance": 50,
+      "interrupt_exist_connections": false
+    },
+    {
+      "type": "direct",
+      "tag": "DIRECT"
+    },
+    {
+      "type": "block",
+      "tag": "REJECT"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "action": "hijack-dns",
+        "protocol": "dns"
+      },
+      {
+        "protocol": "ntp",
+        "outbound": "DIRECT",
+        "action": "route"
+      },
+      {
+        "rule_set": [
+          "geosite-category-ads-all"
+        ],
+        "action": "reject"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "DIRECT",
+        "action": "route"
+      },
+      {
+        "ip_version": 6,
+        "action": "route",
+        "outbound": "DIRECT"
+      },
+      {
+        "rule_set": [
+          "game-download"
+        ],
+        "outbound": "DIRECT",
+        "action": "route"
+      },
+      {
+        "rule_set": [
+          "geosite-netflix"
+        ],
+        "outbound": "🎬 Netflix",
+        "action": "route"
+      },
+      {
+        "rule_set": [
+          "geosite-apple"
+        ],
+        "outbound": "🍎 Apple",
+        "action": "route"
+      },
+      {
+        "rule_set": [
+          "geosite-microsoft"
+        ],
+        "outbound": "🪟 Microsoft",
+        "action": "route"
+      },
+      {
+        "rule_set": [
+          "geosite-steam",
+          "geosite-epicgames"
+        ],
+        "outbound": "🎮 游戏",
+        "action": "route"
+      },
+      {
+        "rule_set": [
+          "geosite-cn"
+        ],
+        "outbound": "DIRECT",
+        "action": "route"
+      },
+      {
+        "rule_set": [
+          "geoip-cn"
+        ],
+        "outbound": "DIRECT",
+        "action": "route"
+      },
+      {
+        "rule_set": [
+          "geosite-geolocation-!cn"
+        ],
+        "action": "route",
+        "outbound": "🚀 节点选择"
+      }
+    ],
+    "final": "🚀 节点选择",
+    "auto_detect_interface": true,
+    "rule_set": [
+      {
+        "tag": "geosite-cn",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs",
+        "update_interval": "1d",
+        "http_client": "http-client-proxy"
+      },
+      {
+        "tag": "geosite-geolocation-!cn",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-!cn.srs",
+        "update_interval": "1d",
+        "http_client": "http-client-proxy"
+      },
+      {
+        "tag": "geosite-category-ads-all",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs",
+        "update_interval": "1d",
+        "http_client": "http-client-proxy"
+      },
+      {
+        "tag": "geosite-netflix",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-netflix.srs",
+        "update_interval": "1d",
+        "http_client": "http-client-proxy"
+      },
+      {
+        "tag": "geosite-apple",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-apple.srs",
+        "update_interval": "1d",
+        "http_client": "http-client-proxy"
+      },
+      {
+        "tag": "geosite-microsoft",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-microsoft.srs",
+        "update_interval": "1d",
+        "http_client": "http-client-proxy"
+      },
+      {
+        "tag": "geosite-steam",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-steam.srs",
+        "update_interval": "1d",
+        "http_client": "http-client-proxy"
+      },
+      {
+        "tag": "geosite-epicgames",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-epicgames.srs",
+        "update_interval": "1d",
+        "http_client": "http-client-proxy"
+      },
+      {
+        "tag": "geoip-cn",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
+        "update_interval": "1d",
+        "http_client": "http-client-proxy"
+      },
+      {
+        "tag": "game-download",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/ssharkkky/singbox-merger/main/rulesets/game-download.srs",
+        "update_interval": "1d",
+        "http_client": "http-client-proxy"
+      }
+    ],
+    "default_domain_resolver": "dns_bootstrap",
+    "default_http_client": "http-client-proxy"
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "path": "cache.db",
+      "store_dns": true
+    },
+    "clash_api": {
+      "external_controller": "127.0.0.1:9090",
+      "external_ui": "dashboard",
+      "external_ui_download_url": "https://github.com/MetaCubeX/metacubexd/archive/gh-pages.tar.gz",
+      "external_ui_download_detour": "🚀 节点选择",
+      "secret": "",
+      "default_mode": "rule"
+    }
+  },
+  "http_clients": [
+    {
+      "tag": "http-client-proxy",
+      "detour": "🚀 节点选择"
+    }
+  ]
+}

@@ -1,0 +1,122 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "domain": "assets1.xboxlive.com"
+    },
+    {
+      "domain": "assets2.xboxlive.com"
+    },
+    {
+      "domain": "blizzard.gcdn.cloudn.co.kr"
+    },
+    {
+      "domain": "blzddist1-a.akamaihd.net"
+    },
+    {
+      "domain": "blzddistkr1-a.akamaihd.net"
+    },
+    {
+      "domain": "client.hikarifield.co.jp"
+    },
+    {
+      "domain": "content.cdp.bethesda.net"
+    },
+    {
+      "domain": "download.cdp.bethesda.net"
+    },
+    {
+      "domain": "download.dm.origin.com"
+    },
+    {
+      "domain": "download.epicgames.com"
+    },
+    {
+      "domain": "download.hikarifield.co.jp"
+    },
+    {
+      "domain": "download2.epicgames.com"
+    },
+    {
+      "domain": "download3.epicgames.com"
+    },
+    {
+      "domain": "download4.epicgames.com"
+    },
+    {
+      "domain": "edge.steam-dns.top.comcast.net"
+    },
+    {
+      "domain": "epicgames-download1.akamaized.net"
+    },
+    {
+      "domain": "eu.cdn.blizzard.com"
+    },
+    {
+      "domain": "fastly-download.epicgames.com"
+    },
+    {
+      "domain": "gamedownloads-rockstargames-com.akamaized.net"
+    },
+    {
+      "domain": "gog-cdn-lumen.secure2.footprint.net"
+    },
+    {
+      "domain": "kr.cdn.blizzard.com"
+    },
+    {
+      "domain": "level3.blizzard.com"
+    },
+    {
+      "domain": "origin-a.akamaihd.net"
+    },
+    {
+      "domain": "packagespc.xboxlive.com"
+    },
+    {
+      "domain": "ssl-lvlt.cdn.ea.com"
+    },
+    {
+      "domain": "steam.eca.qtlglb.com"
+    },
+    {
+      "domain": "steam.naeu.qtlglb.com"
+    },
+    {
+      "domain": "steam.ru.qtlglb.com"
+    },
+    {
+      "domain": "steampipe-kr.akamaized.net"
+    },
+    {
+      "domain": "steampipe-partner.akamaized.net"
+    },
+    {
+      "domain": "steampipe.akamaized.net"
+    },
+    {
+      "domain": "steamusercontent-a.akamaihd.net"
+    },
+    {
+      "domain": "uplaypc-s-ubisoft.cdn.ubionline.com.cn"
+    },
+    {
+      "domain": "us.cdn.blizzard.com"
+    },
+    {
+      "domain": "xvcf1.xboxlive.com"
+    },
+    {
+      "domain": "xvcf2.xboxlive.com"
+    },
+    {
+      "domain_suffix": "cdn.ubi.com"
+    },
+    {
+      "domain_suffix": "dyn.riotcdn.net"
+    },
+    {
+      "domain_suffix": "steamcontent.com"
+    }
+  ]
+}
