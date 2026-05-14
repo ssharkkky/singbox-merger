@@ -593,6 +593,13 @@ def transform_for_router(config: dict) -> dict:
         if out.get("tag") == "DIRECT":
             out["bind_interface"] = "br-lan"
 
+    # 3. Dashboard / clash_api — 监听所有接口 + yacd UI
+    exp = c.setdefault("experimental", {})
+    ca = exp.setdefault("clash_api", {})
+    ca["external_controller"] = "0.0.0.0:9090"
+    ca["external_ui"] = "/etc/sing-box/dashboard"
+    ca["external_ui_download_url"] = "https://github.com/haishanh/yacd/archive/gh-pages.tar.gz"
+
     return c
 
 
