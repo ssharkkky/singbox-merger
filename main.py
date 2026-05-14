@@ -505,6 +505,24 @@ def transform_for_ios(config: dict) -> dict:
         "♻️ 新加坡自动", "♻️ 日本自动", "♻️ 美国自动",
         "🌐 IPv4 节点", "🌐 IPv6 节点", "♻️ IPv4 自动", "♻️ IPv6 自动",
     }
+    # iOS v2: extract nodes from urltest, inject into selector, then delete urltest
+    for ob in c["outbounds"]:
+        if ob.get("tag") == "♻️ 自动选择" and ob.get("type") == "urltest":
+            node_tags = []
+            for n in (ob.get("outbounds") or []):
+                if isinstance(n, dict):
+                    node_tags.append(n.get("tag", ""))
+                elif isinstance(n, str):
+                    node_tags.append(n)
+            node_tags = [t for t in node_tags if t]
+            for sel in c["outbounds"]:
+                if sel.get("tag") == "🚀 节点选择" and sel.get("type") == "selector":
+                    sel["outbounds"] = node_tags
+                    if node_tags:
+                        sel["default"] = node_tags[0]
+            break
+    remove_tags.add("♻️ 自动选择")
+
     c["outbounds"] = [o for o in c["outbounds"] if o.get("tag") not in remove_tags]
     for o in c["outbounds"]:
         if isinstance(o.get("outbounds"), list):
