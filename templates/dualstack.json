@@ -293,17 +293,6 @@
         "action": "route"
       },
       {
-        "domain": [
-          "steamcdn-a.akamaihd.net"
-        ],
-        "domain_suffix": [
-          "cm.steampowered.com",
-          "steamserver.net"
-        ],
-        "outbound": "DIRECT",
-        "action": "route"
-      },
-      {
         "rule_set": [
           "geosite-netflix"
         ],
