@@ -504,15 +504,7 @@ def transform_for_ios(config: dict) -> dict:
         "🇸🇬 新加坡", "🇯🇵 日本", "🇺🇸 美国",
         "♻️ 新加坡自动", "♻️ 日本自动", "♻️ 美国自动",
         "🌐 IPv4 节点", "🌐 IPv6 节点", "♻️ IPv4 自动", "♻️ IPv6 自动",
-        "♻️ 自动选择",
     }
-    # iOS: move all nodes from urltest -> manual selector
-    _auto = next((o for o in c["outbounds"] if o.get("tag") == "♻️ 自动选择"), None)
-    _nodes = _auto.get("outbounds", []) if _auto else []
-    _sel = next((o for o in c["outbounds"] if o.get("tag") == "🚀 节点选择"), None)
-    if _sel and _nodes:
-        _sel["outbounds"] = [n["tag"] if isinstance(n, dict) else n for n in _nodes]
-
     c["outbounds"] = [o for o in c["outbounds"] if o.get("tag") not in remove_tags]
     for o in c["outbounds"]:
         if isinstance(o.get("outbounds"), list):
