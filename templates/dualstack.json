@@ -179,15 +179,6 @@
     },
     {
       "type": "selector",
-      "tag": "🪟 Microsoft",
-      "outbounds": [
-        "DIRECT",
-        "🚀 节点选择"
-      ],
-      "default": "DIRECT"
-    },
-    {
-      "type": "selector",
       "tag": "🎮 游戏",
       "outbounds": [
         "DIRECT",
