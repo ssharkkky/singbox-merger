@@ -326,7 +326,7 @@
         "type": "remote",
         "format": "binary",
         "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs",
-        "update_interval": "1d",
+        "update_interval": "1h",
         "http_client": "http-client-proxy"
       },
       {
@@ -334,7 +334,7 @@
         "type": "remote",
         "format": "binary",
         "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-!cn.srs",
-        "update_interval": "1d",
+        "update_interval": "1h",
         "http_client": "http-client-proxy"
       },
       {
@@ -342,7 +342,7 @@
         "type": "remote",
         "format": "binary",
         "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs",
-        "update_interval": "1d",
+        "update_interval": "1h",
         "http_client": "http-client-proxy"
       },
       {
@@ -350,7 +350,7 @@
         "type": "remote",
         "format": "binary",
         "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-netflix.srs",
-        "update_interval": "1d",
+        "update_interval": "1h",
         "http_client": "http-client-proxy"
       },
       {
@@ -358,7 +358,7 @@
         "type": "remote",
         "format": "binary",
         "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-apple.srs",
-        "update_interval": "1d",
+        "update_interval": "1h",
         "http_client": "http-client-proxy"
       },
       {
@@ -366,7 +366,7 @@
         "type": "remote",
         "format": "binary",
         "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-steam.srs",
-        "update_interval": "1d",
+        "update_interval": "1h",
         "http_client": "http-client-proxy"
       },
       {
@@ -374,7 +374,7 @@
         "type": "remote",
         "format": "binary",
         "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-epicgames.srs",
-        "update_interval": "1d",
+        "update_interval": "1h",
         "http_client": "http-client-proxy"
       },
       {
@@ -382,7 +382,7 @@
         "type": "remote",
         "format": "binary",
         "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
-        "update_interval": "1d",
+        "update_interval": "1h",
         "http_client": "http-client-proxy"
       },
       {
@@ -390,7 +390,7 @@
         "type": "remote",
         "format": "binary",
         "url": "https://raw.githubusercontent.com/ssharkkky/singbox-merger/main/rulesets/game-download.srs",
-        "update_interval": "1d",
+        "update_interval": "1h",
         "http_client": "http-client-proxy"
       }
     ],
