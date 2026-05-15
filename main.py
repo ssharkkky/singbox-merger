@@ -579,21 +579,17 @@ def transform_for_ios(config: dict) -> dict:
 
 
 def transform_for_router(config: dict) -> dict:
-    """路由器模式：TUN 加 auto_redirect，DIRECT 出站绑 br-lan"""
+    """路由器模式：TUN 加 auto_redirect + strict_route=false"""
     import copy
     c = copy.deepcopy(config)
 
-    # 1. TUN inbound 加 auto_redirect（让路由器自身流量走代理）
+    # 1. TUN inbound 加 auto_redirect + strict_route=false（绕过 PPPoE 路由冲突）
     for inb in c.get("inbounds", []):
         if inb.get("type") == "tun":
             inb["auto_redirect"] = True
+            inb["strict_route"] = False
 
-    # 2. DIRECT 出站绑 br-lan（防止路由泄露）
-    for out in c.get("outbounds", []):
-        if out.get("tag") == "DIRECT":
-            out["bind_interface"] = "br-lan"
-
-    # 3. 路由器不需要 mixed-in（SOCKS/HTTP），避免端口 2080 冲突
+    # 2. 路由器不需要 mixed-in（SOCKS/HTTP），避免端口 2080 冲突
     c["inbounds"] = [i for i in c.get("inbounds", []) if i.get("type") != "mixed"]
 
     # 4. DNS: 全局禁用 AAAA 解析，客户端拿不到 IPv6 就不会走 DIRECT 超时
