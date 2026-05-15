@@ -593,7 +593,20 @@ def transform_for_router(config: dict) -> dict:
         if out.get("tag") == "DIRECT":
             out["bind_interface"] = "br-lan"
 
-    # 3. Dashboard / clash_api — 监听所有接口 + yacd UI
+    # 3. 路由器不需要 mixed-in（SOCKS/HTTP），避免端口 2080 冲突
+    c["inbounds"] = [i for i in c.get("inbounds", []) if i.get("type") != "mixed"]
+
+    # 4. DNS: 全局禁用 AAAA 解析，客户端拿不到 IPv6 就不会走 DIRECT 超时
+    dns = c.setdefault("dns", {})
+    dns_rules = dns.setdefault("rules", [])
+    dns_rules.insert(0, {"query_type": ["AAAA"], "action": "reject"})
+
+    # 5. 路由: IPv6 一律 REJECT（秒拒，不等 5 秒超时）
+    for rule in c.get("route", {}).get("rules", []):
+        if rule.get("ip_version") == 6 and rule.get("outbound") == "DIRECT":
+            rule["outbound"] = "REJECT"
+
+    # 6. Dashboard / clash_api — 监听所有接口 + yacd UI
     exp = c.setdefault("experimental", {})
     ca = exp.setdefault("clash_api", {})
     ca["external_controller"] = "0.0.0.0:9090"
