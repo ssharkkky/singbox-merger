@@ -303,13 +303,6 @@
       },
       {
         "rule_set": [
-          "geosite-microsoft"
-        ],
-        "outbound": "🪟 Microsoft",
-        "action": "route"
-      },
-      {
-        "rule_set": [
           "geosite-steam",
           "geosite-epicgames"
         ],
@@ -383,14 +376,6 @@
         "type": "remote",
         "format": "binary",
         "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-apple.srs",
-        "update_interval": "1d",
-        "http_client": "http-client-proxy"
-      },
-      {
-        "tag": "geosite-microsoft",
-        "type": "remote",
-        "format": "binary",
-        "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-microsoft.srs",
         "update_interval": "1d",
         "http_client": "http-client-proxy"
       },
