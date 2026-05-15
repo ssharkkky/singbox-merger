@@ -281,11 +281,6 @@
         "action": "route"
       },
       {
-        "ip_version": 6,
-        "action": "route",
-        "outbound": "DIRECT"
-      },
-      {
         "rule_set": [
           "game-download"
         ],
@@ -334,6 +329,11 @@
         ],
         "outbound": "DIRECT",
         "action": "route"
+      },
+      {
+        "ip_version": 6,
+        "action": "route",
+        "outbound": "DIRECT"
       },
       {
         "rule_set": [
