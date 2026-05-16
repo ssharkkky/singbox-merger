@@ -56,6 +56,12 @@
       },
       {
         "query_type": [
+          65
+        ],
+        "action": "reject"
+      },
+      {
+        "query_type": [
           "AAAA"
         ],
         "action": "reject"
