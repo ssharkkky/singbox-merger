@@ -264,6 +264,20 @@
       },
       {
         "rule_set": [
+          "geosite-cn"
+        ],
+        "outbound": "DIRECT",
+        "action": "route"
+      },
+      {
+        "rule_set": [
+          "geoip-cn"
+        ],
+        "outbound": "DIRECT",
+        "action": "route"
+      },
+      {
+        "rule_set": [
           "game-download"
         ],
         "outbound": "DIRECT",
@@ -289,20 +303,6 @@
           "geosite-epicgames"
         ],
         "outbound": "🎮 游戏",
-        "action": "route"
-      },
-      {
-        "rule_set": [
-          "geosite-cn"
-        ],
-        "outbound": "DIRECT",
-        "action": "route"
-      },
-      {
-        "rule_set": [
-          "geoip-cn"
-        ],
-        "outbound": "DIRECT",
         "action": "route"
       },
       {
