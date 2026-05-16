@@ -590,8 +590,6 @@ def transform_for_router(config: dict) -> dict:
             inb["strict_route"] = False
 
     # 2. 路由器不需要 mixed-in（SOCKS/HTTP），避免端口 2080 冲突
-    for rule in c.get("route", {}).get("rules", []):
-        if rule.get("ip_version") == 6 and rule.get("outbound") == "DIRECT":
 
     # 6. Dashboard / clash_api — 监听所有接口 + yacd UI
     exp = c.setdefault("experimental", {})
