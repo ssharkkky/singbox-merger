@@ -43,6 +43,12 @@
         "action": "reject"
       },
       {
+        "domain_suffix": [
+          "local"
+        ],
+        "server": "dns_local"
+      },
+      {
         "rule_set": [
           "geosite-cn"
         ],
