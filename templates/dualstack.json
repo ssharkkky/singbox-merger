@@ -320,7 +320,7 @@
       {
         "ip_version": 6,
         "action": "route",
-        "outbound": "DIRECT"
+        "outbound": "REJECT"
       },
       {
         "rule_set": [
