@@ -2,7 +2,8 @@
   "log": {
     "disabled": false,
     "level": "info",
-    "timestamp": true
+    "timestamp": true,
+    "output": "/tmp/sing-box.log"
   },
   "dns": {
     "servers": [
@@ -62,8 +63,7 @@
     "enabled": true,
     "server": "time.apple.com",
     "server_port": 123,
-    "interval": "30m",
-    "detour": "DIRECT"
+    "interval": "30m"
   },
   "inbounds": [
     {
