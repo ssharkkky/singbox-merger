@@ -56,12 +56,6 @@
       },
       {
         "query_type": [
-          65
-        ],
-        "action": "reject"
-      },
-      {
-        "query_type": [
           "AAAA"
         ],
         "action": "reject"
@@ -319,8 +313,8 @@
       },
       {
         "ip_version": 6,
-        "action": "route",
-        "outbound": "DIRECT"
+        "action": "reject",
+        "method": "drop"
       },
       {
         "rule_set": [
