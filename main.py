@@ -593,7 +593,6 @@ def transform_for_router(config: dict) -> dict:
     c["inbounds"] = [i for i in c.get("inbounds", []) if i.get("type") != "mixed"]
 
 
-    # 5. 路由: IPv6 一律 REJECT（秒拒，不等 5 秒超时）
     for rule in c.get("route", {}).get("rules", []):
         if rule.get("ip_version") == 6 and rule.get("outbound") == "DIRECT":
             rule["outbound"] = "REJECT"
