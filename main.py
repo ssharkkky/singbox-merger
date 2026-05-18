@@ -557,11 +557,6 @@ def transform_for_ios(config: dict) -> dict:
 
     # 5. 删 NTP, cache_file, http_clients, experimental（精简版不需要）
     c.pop("ntp", None)
-    c.pop("http_clients", None)          # iOS 不支持自定义 HTTP 客户端
-    # 同时清理 route 中对 http-client-proxy 的引用（否则 dangling）
-    c["route"].pop("default_http_client", None)
-    for rs in c["route"].get("rule_set", []):
-        rs.pop("http_client", None)
     exp = c.get("experimental", {})
     exp.pop("cache_file", None)
     exp.pop("clash_api", None)           # iOS 无 dashboard 需求，移除避免闪退
