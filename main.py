@@ -555,14 +555,14 @@ def transform_for_ios(config: dict) -> dict:
             i["strict_route"] = False
             i["mtu"] = 1500
 
-    # 5. 删 NTP, cache_file, clash_api 多余项
+    # 5. 删 NTP, cache_file, http_clients, experimental（精简版不需要）
     c.pop("ntp", None)
+    c.pop("http_clients", None)          # iOS 不支持自定义 HTTP 客户端
     exp = c.get("experimental", {})
     exp.pop("cache_file", None)
-    if "clash_api" in exp:
-        exp["clash_api"].pop("external_ui_download_url", None)
-        exp["clash_api"].pop("external_ui_download_detour", None)
-        exp["clash_api"].pop("secret", None)
+    exp.pop("clash_api", None)           # iOS 无 dashboard 需求，移除避免闪退
+    if not exp:
+        c.pop("experimental", None)
 
     # 6. DNS 去掉 dns_local
     c["dns"]["servers"] = [s for s in c["dns"]["servers"] if s.get("tag") != "dns_local"]
