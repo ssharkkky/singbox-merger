@@ -574,6 +574,10 @@ def transform_for_ios(config: dict) -> dict:
 
     # 6. DNS 去掉 dns_local
     c["dns"]["servers"] = [s for s in c["dns"]["servers"] if s.get("tag") != "dns_local"]
+    c["dns"]["rules"] = [r for r in c["dns"]["rules"] if r.get("server") != "dns_local"]
+
+    # 7. iOS 沙箱无 /tmp 写权限，移除日志文件输出
+    c["log"].pop("output", None)
 
     return c
 
