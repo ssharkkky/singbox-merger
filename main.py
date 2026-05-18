@@ -326,19 +326,6 @@ async def fetch_one_sub(url: str, timeout: int = FETCH_TIMEOUT) -> list[dict]:
             continue
         node = parse_node(line)
         if node:
-            nodes.append(node)
-
-    # 同名节点加后缀去重
-    seen_tags: dict[str, int] = {}
-    for node in nodes:
-        tag = node.get("tag", "")
-        if not tag:
-            continue
-        if tag in seen_tags:
-            seen_tags[tag] += 1
-            node["tag"] = f"{tag} {seen_tags[tag]}"
-        else:
-            seen_tags[tag] = 1
     log.info(f"Parsed {len(nodes)} nodes from {url[:60]}")
     return nodes
 
