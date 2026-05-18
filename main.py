@@ -326,6 +326,7 @@ async def fetch_one_sub(url: str, timeout: int = FETCH_TIMEOUT) -> list[dict]:
             continue
         node = parse_node(line)
         if node:
+            nodes.append(node)
     log.info(f"Parsed {len(nodes)} nodes from {url[:60]}")
     return nodes
 
@@ -514,6 +515,10 @@ def transform_for_ios(config: dict) -> dict:
     for o in c["outbounds"]:
         if isinstance(o.get("outbounds"), list):
             o["outbounds"] = [t for t in o["outbounds"] if t not in remove_tags]
+
+    # iOS: 精简版删了 🇺🇸 美国等 region outbounds，修复 route.final 悬空引用
+    if c["route"].get("final") in remove_tags:
+        c["route"]["final"] = "🚀 节点选择"
 
     # 2. 路由规则只保留核心 rule_set
     keep_rule_sets = {"geosite-cn", "geosite-geolocation-!cn", "geoip-cn",
