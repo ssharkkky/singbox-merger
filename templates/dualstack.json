@@ -118,7 +118,7 @@
         "🇺🇸 美国",
         "DIRECT"
       ],
-      "default": "♻️ 自动选择"
+      "default": "🇺🇸 美国"
     },
     {
       "type": "urltest",
@@ -330,7 +330,7 @@
         "outbound": "🚀 节点选择"
       }
     ],
-    "final": "🇺🇸 美国",
+    "final": "🚀 节点选择",
     "auto_detect_interface": true,
     "rule_set": [
       {
