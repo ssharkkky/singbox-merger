@@ -58,12 +58,6 @@
           65
         ],
         "action": "reject"
-      },
-      {
-        "query_type": [
-          "AAAA"
-        ],
-        "action": "reject"
       }
     ],
     "final": "dns_proxy",
@@ -286,11 +280,6 @@
         ],
         "outbound": "🎮 游戏",
         "action": "route"
-      },
-      {
-        "ip_version": 6,
-        "action": "route",
-        "outbound": "REJECT"
       },
       {
         "rule_set": [
