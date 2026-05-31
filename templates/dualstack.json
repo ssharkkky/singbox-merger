@@ -1,9 +1,8 @@
 {
   "log": {
     "disabled": false,
-    "level": "info",
-    "timestamp": true,
-    "output": "/tmp/sing-box.log"
+    "level": "warn",
+    "timestamp": true
   },
   "dns": {
     "servers": [
@@ -111,8 +110,6 @@
       "tag": "🚀 节点选择",
       "outbounds": [
         "♻️ 自动选择",
-        "🌐 IPv4 节点",
-        "🌐 IPv6 节点",
         "🇸🇬 新加坡",
         "🇯🇵 日本",
         "🇺🇸 美国",
@@ -123,40 +120,6 @@
     {
       "type": "urltest",
       "tag": "♻️ 自动选择",
-      "outbounds": [],
-      "url": "https://www.gstatic.com/generate_204",
-      "interval": "3m",
-      "tolerance": 50,
-      "interrupt_exist_connections": false
-    },
-    {
-      "type": "selector",
-      "tag": "🌐 IPv4 节点",
-      "outbounds": [
-        "♻️ IPv4 自动"
-      ],
-      "default": "♻️ IPv4 自动"
-    },
-    {
-      "type": "selector",
-      "tag": "🌐 IPv6 节点",
-      "outbounds": [
-        "♻️ IPv6 自动"
-      ],
-      "default": "♻️ IPv6 自动"
-    },
-    {
-      "type": "urltest",
-      "tag": "♻️ IPv4 自动",
-      "outbounds": [],
-      "url": "https://www.gstatic.com/generate_204",
-      "interval": "3m",
-      "tolerance": 50,
-      "interrupt_exist_connections": false
-    },
-    {
-      "type": "urltest",
-      "tag": "♻️ IPv6 自动",
       "outbounds": [],
       "url": "https://www.gstatic.com/generate_204",
       "interval": "3m",

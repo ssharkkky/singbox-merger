@@ -39,13 +39,11 @@ FETCH_TIMEOUT = 30
 
 INJECT_RULES: dict[str, dict] = {
     "♻️ 自动选择": {"match_all": True},
-    "♻️ IPv4 自动": {"exclude": ["IPv6", "ipv6"]},
-    "♻️ IPv6 自动": {"match": ["IPv6", "ipv6"]},
-    "♻️ 新加坡自动": {"match": ["Singapore", "SG", "新加坡", "🇸🇬"], "exclude": ["IPv6", "ipv6"]},
-    "♻️ 日本自动": {"match": ["Japan", "Tokyo", "JP", "日本", "🇯🇵"], "exclude": ["IPv6", "ipv6"]},
-    "♻️ 美国自动": {"match": ["US", "USA", "United States", "美国", "🇺🇸", "wago", "BWH",
+    "♻️ 新加坡自动": {"match": ["Singapore", "SG", "新加坡", "🇸🇬"]},
+    "♻️ 日本自动": {"match": ["Japan", "Tokyo", "JP", "日本", "🇯🇵"]},
+    "♻️ 美国自动": {"match": ["US", "USA", "United States", "美国", "🇺🇸", "wago", "BWH", "合租",
                   "Los Angeles", "San Jose", "New York", "Seattle",
-                  "Silicon", "San Francisco", "Dallas", "Chicago"], "exclude": ["IPv6", "ipv6"]},
+                  "Silicon", "San Francisco", "Dallas", "Chicago"]},
 }
 
 logging.basicConfig(level=getattr(logging, LOG_LEVEL.upper(), logging.INFO))
@@ -578,6 +576,16 @@ def transform_for_router(config: dict) -> dict:
     import copy
     c = copy.deepcopy(config)
 
+
+    # 0. lllinya.com DNS: UDP直连dnsmasq (type:local在OpenWrt不可靠)
+    c["dns"]["servers"].insert(0, {"type": "udp", "tag": "dns-locallllinya", "server": "127.0.0.1"})
+    # 0. *.lllinya.com 全量走本地 dnsmasq — dnsmasq 内裁决：服务子域名→webserver，www/root→火山DNS
+    c["dns"]["rules"].insert(0, {"domain_suffix": ["lllinya.com"], "server": "dns-locallllinya"})
+    # 0.1 *.lllinya.com 全量路由直连 — 避开 geosite-!cn 代理
+    #    sniff 之后插入，确保域名已嗅探
+    _pos = next((i for i, r in enumerate(c["route"]["rules"]) if r.get("action") == "sniff"), 0) + 1
+    c["route"]["rules"].insert(_pos, {"domain_suffix": ["lllinya.com"], "outbound": "DIRECT"})
+    
     # 1. TUN inbound 加 auto_redirect + strict_route=false（绕过 PPPoE 路由冲突）
     for inb in c.get("inbounds", []):
         if inb.get("type") == "tun":
@@ -585,6 +593,9 @@ def transform_for_router(config: dict) -> dict:
             inb["strict_route"] = False
 
     # 2. 路由器不需要 mixed-in（SOCKS/HTTP），避免端口 2080 冲突
+
+    # 3. 路由器写日志到文件（macOS/iOS 沙盒无 /tmp 写权限，由模板默认不带 output，仅 router 开启）
+    c["log"]["output"] = "/tmp/sing-box.log"
 
     # 6. Dashboard / clash_api — 监听所有接口 + yacd UI
     exp = c.setdefault("experimental", {})
@@ -940,4 +951,4 @@ async def index():
 # ══════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=25600, log_level=LOG_LEVEL)
+    uvicorn.run(app, host="127.0.0.1", port=25600, log_level=LOG_LEVEL)
