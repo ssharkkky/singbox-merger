@@ -611,6 +611,10 @@ def transform_for_ios(config: dict) -> dict:
             i["stack"] = "system"
             i["strict_route"] = False
             i["mtu"] = 1500
+            # 回家: 移除含家庭网段的 route_exclude(否则 192.168.0.0/24 / 10.99.0.0/24 被挡在隧道外,命不中回家规则)
+            if isinstance(i.get("route_exclude_address"), list):
+                i["route_exclude_address"] = [a for a in i["route_exclude_address"]
+                                              if a not in ("192.168.0.0/16", "10.0.0.0/8")]
 
     # 5. 删 NTP, cache_file, http_clients, experimental（精简版不需要）
     c.pop("ntp", None)
