@@ -238,6 +238,13 @@
         "action": "route"
       },
       {
+        "ip_cidr": [
+          "17.0.0.0/8"
+        ],
+        "outbound": "DIRECT",
+        "action": "route"
+      },
+      {
         "rule_set": [
           "geosite-cn"
         ],
