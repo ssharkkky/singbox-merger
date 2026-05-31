@@ -247,6 +247,13 @@
       },
       {
         "rule_set": [
+          "geoip-cn-loyal"
+        ],
+        "outbound": "DIRECT",
+        "action": "route"
+      },
+      {
+        "rule_set": [
           "game-download"
         ],
         "outbound": "DIRECT",
@@ -346,6 +353,14 @@
         "type": "remote",
         "format": "binary",
         "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
+        "update_interval": "1h",
+        "http_client": "http-client-proxy"
+      },
+      {
+        "tag": "geoip-cn-loyal",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/Loyalsoldier/geoip/release/srs/cn.srs",
         "update_interval": "1h",
         "http_client": "http-client-proxy"
       },
