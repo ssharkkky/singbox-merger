@@ -546,6 +546,18 @@ def transform_for_ios(config: dict) -> dict:
     for ob in c["outbounds"]:
         if isinstance(ob.get("default"), str) and ob["default"] in remove_tags:
             ob["default"] = "♻️ 自动选择"
+    # iOS: inject all nodes from urltest into selector so user can manually pick
+    _auto = next((o for o in c["outbounds"] if o.get("tag") == "♻️ 自动选择"), None)
+    if _auto:
+        _node_tags = [t for t in (_auto.get("outbounds") or []) if isinstance(t, str)]
+        for ob in c["outbounds"]:
+            if ob.get("tag") == "🚀 节点选择" and ob.get("type") == "selector":
+                existing = set(ob.get("outbounds", []))
+                for nt in _node_tags:
+                    if nt not in existing:
+                        ob["outbounds"].append(nt)
+                break
+
     # iOS: 精简版删了 🇺🇸 美国等 region outbounds，修复 route.final 悬空引用
     if c["route"].get("final") in remove_tags:
         c["route"]["final"] = "🚀 节点选择"
