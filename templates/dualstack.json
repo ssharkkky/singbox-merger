@@ -61,7 +61,6 @@
       }
     ],
     "final": "dns_proxy",
-    "strategy": "prefer_ipv4",
     "optimistic": true
   },
   "ntp": {
