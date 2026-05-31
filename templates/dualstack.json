@@ -220,11 +220,6 @@
         "action": "reject"
       },
       {
-        "ip_cidr": ["192.168.0.0/24", "10.99.0.0/24"],
-        "outbound": "🏠 回家",
-        "action": "route"
-      },
-      {
         "ip_is_private": true,
         "outbound": "DIRECT",
         "action": "route"
