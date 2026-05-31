@@ -52,12 +52,6 @@
           "geosite-cn"
         ],
         "server": "dns_direct"
-      },
-      {
-        "query_type": [
-          65
-        ],
-        "action": "reject"
       }
     ],
     "final": "dns_proxy",
