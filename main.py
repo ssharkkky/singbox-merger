@@ -542,6 +542,10 @@ def transform_for_ios(config: dict) -> dict:
         if isinstance(o.get("outbounds"), list):
             o["outbounds"] = [t for t in o["outbounds"] if t not in remove_tags]
 
+    # Fix dangling defaults: if a selector default was removed, point to auto-select
+    for ob in c["outbounds"]:
+        if isinstance(ob.get("default"), str) and ob["default"] in remove_tags:
+            ob["default"] = "♻️ 自动选择"
     # iOS: 精简版删了 🇺🇸 美国等 region outbounds，修复 route.final 悬空引用
     if c["route"].get("final") in remove_tags:
         c["route"]["final"] = "🚀 节点选择"
