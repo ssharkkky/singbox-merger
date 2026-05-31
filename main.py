@@ -406,7 +406,7 @@ def categorize_nodes(nodes: list[dict]) -> dict[str, list[str]]:
     return groups
 
 
-def load_static_nodes() -> tuple[list[dict], list[dict]]:
+def load_static_nodes() -> tuple[list[dict], list[dict], list[dict]]:
     """加载固定节点(自有基础设施, 原生 sing-box outbound)。
     static-nodes.json 是一个 entry 列表, 每个 entry:
       {"node": {...主 outbound, 参与正常分组...},
@@ -415,11 +415,11 @@ def load_static_nodes() -> tuple[list[dict], list[dict]]:
     try:
         entries = json.loads(STATIC_NODES_PATH.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return [], []
+        return [], [], []
     except Exception as e:
         log.warning(f"static-nodes load failed: {e}")
-        return [], []
-    nodes, shells = [], []
+        return [], [], []
+    nodes, shells, endpoints = [], [], []
     for e in entries:
         n = e.get("node")
         if isinstance(n, dict) and n.get("tag"):
@@ -427,24 +427,28 @@ def load_static_nodes() -> tuple[list[dict], list[dict]]:
         for s in e.get("shells", []):
             if isinstance(s, dict) and s.get("tag"):
                 shells.append(s)
-    return nodes, shells
+        ep = e.get("endpoint")
+        if isinstance(ep, dict) and ep.get("tag"):
+            endpoints.append(ep)
+    return nodes, shells, endpoints
 
 
-def merge_static_nodes(all_nodes: list[dict]) -> tuple[list[dict], list[dict]]:
-    """把固定节点并入节点列表(固定节点优先, 去除订阅里同 tag 的副本), 返回 (合并后节点, shells)。"""
-    static_nodes, shells = load_static_nodes()
-    if not static_nodes and not shells:
-        return all_nodes, []
+def merge_static_nodes(all_nodes: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
+    """把固定节点并入节点列表(固定节点优先, 去除订阅里同 tag 的副本), 返回 (合并后节点, shells, endpoints)。"""
+    static_nodes, shells, endpoints = load_static_nodes()
+    if not static_nodes and not shells and not endpoints:
+        return all_nodes, [], []
     static_tags = {n["tag"] for n in static_nodes}
     merged = [n for n in all_nodes if n.get("tag") not in static_tags]
     merged.extend(static_nodes)
     if static_nodes:
         log.info(f"Static nodes injected: {sorted(static_tags)}; shells: {[s.get('tag') for s in shells]}")
-    return merged, shells
+    return merged, shells, endpoints
 
 
 def inject_into_template(template: dict, nodes: list[dict], expand: bool = True,
-                         extra_outbounds: Optional[list[dict]] = None) -> dict:
+                         extra_outbounds: Optional[list[dict]] = None,
+                         extra_endpoints: Optional[list[dict]] = None) -> dict:
     import copy
     config = copy.deepcopy(template)
     config.pop("_meta", None)
@@ -517,6 +521,15 @@ def inject_into_template(template: dict, nodes: list[dict], expand: bool = True,
                 o["outbounds"] = [t for t in o["outbounds"] if t not in empty_tags]
         log.info(f"Removed empty groups: {empty_tags}")
 
+    # 注入静态 endpoints(如 WireGuard 回家节点) — 不参与分组/自动选择
+    if extra_endpoints:
+        eps = config.setdefault("endpoints", [])
+        existing_ep = {e.get("tag") for e in eps if e.get("tag")}
+        for ep in extra_endpoints:
+            if ep.get("tag") and ep["tag"] not in existing_ep:
+                eps.append(copy.deepcopy(ep))
+                existing_ep.add(ep["tag"])
+
     return config
 
 
@@ -580,6 +593,8 @@ def transform_for_ios(config: dict) -> dict:
         elif r.get("ip_is_private"):
             new_rules.append(r)
         elif r.get("ip_version") == 6:
+            new_rules.append(r)
+        elif out == "🏠 回家":          # 保留回家分流规则(指向 endpoint, 不在 outbounds 白名单)
             new_rules.append(r)
         elif rs and all(s in keep_rule_sets for s in rs):
             new_rules.append(r)
@@ -648,6 +663,10 @@ def transform_for_router(config: dict) -> dict:
     ca["external_ui"] = "/etc/sing-box/dashboard"
     ca["external_ui_download_url"] = "https://github.com/haishanh/yacd/archive/gh-pages.tar.gz"
 
+    # 7. 路由器本就在家:剔除"🏠 回家"endpoint 及其路由(避免把自家 LAN 又塞回自己的隧道)
+    c["endpoints"] = [e for e in c.get("endpoints", []) if e.get("tag") != "🏠 回家"]
+    c["route"]["rules"] = [r for r in c["route"]["rules"] if r.get("outbound") != "🏠 回家"]
+
     return c
 
 
@@ -715,13 +734,13 @@ async def api_merge(request: Request):
         log.info(f"Trimmed to {limit} nodes")
 
     # 固定节点(自有基础设施)注入
-    all_nodes, static_shells = merge_static_nodes(all_nodes)
+    all_nodes, static_shells, static_endpoints = merge_static_nodes(all_nodes)
 
     if not all_nodes:
         raise HTTPException(422, "No valid nodes found")
 
     template = load_template(template_name)
-    config = inject_into_template(template, all_nodes, expand, extra_outbounds=static_shells)
+    config = inject_into_template(template, all_nodes, expand, extra_outbounds=static_shells, extra_endpoints=static_endpoints)
 
     if profile == "ios":
         config = transform_for_ios(config)
@@ -767,13 +786,13 @@ async def api_merge_get(
         log.info(f"Trimmed to {limit} nodes")
 
     # 固定节点(自有基础设施)注入
-    all_nodes, static_shells = merge_static_nodes(all_nodes)
+    all_nodes, static_shells, static_endpoints = merge_static_nodes(all_nodes)
 
     if not all_nodes:
         raise HTTPException(422, "No valid nodes found")
 
     tmpl = load_template(template)
-    config = inject_into_template(tmpl, all_nodes, expand, extra_outbounds=static_shells)
+    config = inject_into_template(tmpl, all_nodes, expand, extra_outbounds=static_shells, extra_endpoints=static_endpoints)
 
     if profile == "ios":
         config = transform_for_ios(config)
