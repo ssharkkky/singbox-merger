@@ -27,6 +27,7 @@ import uvicorn
 
 # ── Config ──────────────────────────────────────────────────────────
 TEMPLATES_DIR = Path(__file__).parent / "templates"
+STATIC_NODES_PATH = Path(__file__).parent / "static-nodes.json"
 LOG_LEVEL = "info"
 FETCH_PROXY: Optional[str] = None
 FETCH_TIMEOUT = 30
@@ -405,7 +406,45 @@ def categorize_nodes(nodes: list[dict]) -> dict[str, list[str]]:
     return groups
 
 
-def inject_into_template(template: dict, nodes: list[dict], expand: bool = True) -> dict:
+def load_static_nodes() -> tuple[list[dict], list[dict]]:
+    """加载固定节点(自有基础设施, 原生 sing-box outbound)。
+    static-nodes.json 是一个 entry 列表, 每个 entry:
+      {"node": {...主 outbound, 参与正常分组...},
+       "shells": [{...附属 outbound, 仅追加不分组, 如 shadowtls 外壳...}]}
+    返回 (nodes, shells)。文件含凭据, 已在 .gitignore, 不提交。"""
+    try:
+        entries = json.loads(STATIC_NODES_PATH.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return [], []
+    except Exception as e:
+        log.warning(f"static-nodes load failed: {e}")
+        return [], []
+    nodes, shells = [], []
+    for e in entries:
+        n = e.get("node")
+        if isinstance(n, dict) and n.get("tag"):
+            nodes.append(n)
+        for s in e.get("shells", []):
+            if isinstance(s, dict) and s.get("tag"):
+                shells.append(s)
+    return nodes, shells
+
+
+def merge_static_nodes(all_nodes: list[dict]) -> tuple[list[dict], list[dict]]:
+    """把固定节点并入节点列表(固定节点优先, 去除订阅里同 tag 的副本), 返回 (合并后节点, shells)。"""
+    static_nodes, shells = load_static_nodes()
+    if not static_nodes and not shells:
+        return all_nodes, []
+    static_tags = {n["tag"] for n in static_nodes}
+    merged = [n for n in all_nodes if n.get("tag") not in static_tags]
+    merged.extend(static_nodes)
+    if static_nodes:
+        log.info(f"Static nodes injected: {sorted(static_tags)}; shells: {[s.get('tag') for s in shells]}")
+    return merged, shells
+
+
+def inject_into_template(template: dict, nodes: list[dict], expand: bool = True,
+                         extra_outbounds: Optional[list[dict]] = None) -> dict:
     import copy
     config = copy.deepcopy(template)
     config.pop("_meta", None)
@@ -451,6 +490,11 @@ def inject_into_template(template: dict, nodes: list[dict], expand: bool = True)
     # 追加节点 outbound 条目（去重）
     existing_tags = {o.get("tag") for o in outbounds if o.get("tag")}
     new_obs = [n for n in nodes if n.get("tag") and n["tag"] not in existing_tags]
+    # 附属 outbound(如 shadowtls 外壳): 仅追加, 不参与任何分组
+    for s in (extra_outbounds or []):
+        if s.get("tag") and s["tag"] not in existing_tags:
+            new_obs.append(s)
+            existing_tags.add(s["tag"])
     insert_idx = len(outbounds)
     for i, ob in enumerate(outbounds):
         if ob.get("type") in ("direct", "block") and not ob.get("tag", "").startswith("♻️"):
@@ -666,15 +710,18 @@ async def api_merge(request: Request):
                 all_nodes.append(n)
                 seen.add(n.get("tag"))
 
-    if not all_nodes:
-        raise HTTPException(422, "No valid nodes found")
-
     if limit > 0 and len(all_nodes) > limit:
         all_nodes = all_nodes[:limit]
         log.info(f"Trimmed to {limit} nodes")
 
+    # 固定节点(自有基础设施)注入
+    all_nodes, static_shells = merge_static_nodes(all_nodes)
+
+    if not all_nodes:
+        raise HTTPException(422, "No valid nodes found")
+
     template = load_template(template_name)
-    config = inject_into_template(template, all_nodes, expand)
+    config = inject_into_template(template, all_nodes, expand, extra_outbounds=static_shells)
 
     if profile == "ios":
         config = transform_for_ios(config)
@@ -715,15 +762,18 @@ async def api_merge_get(
             if n.get("tag") not in seen:
                 all_nodes.append(n)
 
-    if not all_nodes:
-        raise HTTPException(422, "No valid nodes found")
-
     if limit > 0 and len(all_nodes) > limit:
         all_nodes = all_nodes[:limit]
         log.info(f"Trimmed to {limit} nodes")
 
+    # 固定节点(自有基础设施)注入
+    all_nodes, static_shells = merge_static_nodes(all_nodes)
+
+    if not all_nodes:
+        raise HTTPException(422, "No valid nodes found")
+
     tmpl = load_template(template)
-    config = inject_into_template(tmpl, all_nodes, expand)
+    config = inject_into_template(tmpl, all_nodes, expand, extra_outbounds=static_shells)
 
     if profile == "ios":
         config = transform_for_ios(config)
