@@ -644,10 +644,21 @@ def transform_for_router(config: dict) -> dict:
     c = copy.deepcopy(config)
 
 
-    # 0. lllinya.com DNS: UDP直连dnsmasq (type:local在OpenWrt不可靠)
+    # 0. lllinya.com DNS:
+    #    内网服务子域名 → 本地 dnsmasq(address= → webserver)；apex/www/其它 → dns_direct 公网解析。
+    #    旧设计把整个 *.lllinya.com 丢给 dnsmasq 让它自行裁决,但 dnsmasq 对未命中名字(apex/www)
+    #    转发上游 53,经 sing-box auto_redirect 的 DNS 劫持 DNAT 回 dns-locallllinya 形成死循环,
+    #    打满 dnsmasq 150 并发槽导致全网 DNS 间歇故障。故在 sing-box 侧就按名字分流,不再依赖 dnsmasq 转发。
+    #    新增内网服务子域名时,需同步 OpenWrt /etc/config/dhcp 的 address= 与下面这份列表。
+    _LLLINYA_LOCAL = [
+        "vault.lllinya.com", "ha.lllinya.com", "pve.lllinya.com", "nas.lllinya.com",
+        "agent.lllinya.com", "auth.lllinya.com", "memos.lllinya.com", "qb.lllinya.com",
+    ]
     c["dns"]["servers"].insert(0, {"type": "udp", "tag": "dns-locallllinya", "server": "127.0.0.1"})
-    # 0. *.lllinya.com 全量走本地 dnsmasq — dnsmasq 内裁决：服务子域名→webserver，www/root→火山DNS
-    c["dns"]["rules"].insert(0, {"domain_suffix": ["lllinya.com"], "server": "dns-locallllinya"})
+    # 先插 suffix→dns_direct(兜底:apex/www/未知)
+    c["dns"]["rules"].insert(0, {"domain_suffix": ["lllinya.com"], "server": "dns_direct"})
+    # 再插精确子域名→dnsmasq,插在最前,优先于上面的 suffix 兜底
+    c["dns"]["rules"].insert(0, {"domain": _LLLINYA_LOCAL, "server": "dns-locallllinya"})
     # 0.1 *.lllinya.com 全量路由直连 — 避开 geosite-!cn 代理
     #    sniff 之后插入，确保域名已嗅探
     _pos = next((i for i, r in enumerate(c["route"]["rules"]) if r.get("action") == "sniff"), 0) + 1
