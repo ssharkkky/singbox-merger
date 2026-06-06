@@ -153,6 +153,9 @@ def _parse_vless(uri: str) -> Optional[dict]:
                 tls["utls"] = {"enabled": True, "fingerprint": p("fp", "chrome")}
                 tls["reality"] = {"enabled": True, "public_key": p("pbk", ""), "short_id": p("sid", "")}
             out["tls"] = tls
+            ech_val = p("ech")
+            if ech_val:
+                out["tls"]["ech"] = {"enabled": True, "query_server_name": ech_val.split("+", 1)[0]}
         return out
     except Exception as e:
         log.debug(f"vless parse: {e}")
@@ -180,6 +183,9 @@ def _parse_trojan(uri: str) -> Optional[dict]:
         if p("security", "tls") == "tls":
             out["tls"] = {"enabled": True, "server_name": p("sni", u.hostname) or "",
                           "insecure": p("allowInsecure", "0") == "1"}
+            ech_val = p("ech")
+            if ech_val:
+                out["tls"]["ech"] = {"enabled": True, "query_server_name": ech_val.split("+", 1)[0]}
         return out
     except Exception as e:
         log.debug(f"trojan parse: {e}")
