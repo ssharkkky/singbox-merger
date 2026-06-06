@@ -630,13 +630,17 @@ def transform_for_ios(config: dict) -> dict:
                 i["route_exclude_address"] = [a for a in i["route_exclude_address"]
                                               if a not in ("192.168.0.0/16", "10.0.0.0/8")]
 
-    # 5. 删 NTP, cache_file, http_clients, experimental（精简版不需要）
+    # 5. 删 NTP + clash_api（精简版不需要 dashboard）
     c.pop("ntp", None)
     exp = c.get("experimental", {})
-    exp.pop("cache_file", None)
     exp.pop("clash_api", None)           # iOS 无 dashboard 需求，移除避免闪退
-    if not exp:
-        c.pop("experimental", None)
+    # iOS NE 启动有硬时限：必须保留 cache_file。enabled 后 remote rule-set 会自动
+    # 持久化到缓存,下载一次后续启动秒加载。否则每次启动都重下全部 rule-set,数量
+    # 一多(经国内→代理慢链)就完不成 → "initialize rule-set take too much time"
+    # → NE 超时被杀重启 → 又从零重下 → 死循环卡"启动中"。
+    # 注意:本版本(1.14 alpha)无 store_rule_set 字段,写了会 FATAL。
+    exp["cache_file"] = {"enabled": True, "path": "cache.db", "store_dns": True}
+    c["experimental"] = exp
 
     # 6. DNS 去掉 dns_local
     c["dns"]["servers"] = [s for s in c["dns"]["servers"] if s.get("tag") != "dns_local"]
