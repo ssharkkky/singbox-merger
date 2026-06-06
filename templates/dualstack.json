@@ -260,6 +260,11 @@
         "action": "route"
       },
       {
+        "network": "udp",
+        "outbound": "🇺🇸 BWG-LA",
+        "action": "route"
+      },
+      {
         "rule_set": [
           "geosite-netflix"
         ],
