@@ -233,6 +233,13 @@
       },
       {
         "rule_set": [
+          "geosite-apple"
+        ],
+        "outbound": "DIRECT",
+        "action": "route"
+      },
+      {
+        "rule_set": [
           "geosite-cn"
         ],
         "outbound": "DIRECT",
@@ -269,13 +276,6 @@
           "geosite-netflix"
         ],
         "outbound": "🎬 Netflix",
-        "action": "route"
-      },
-      {
-        "rule_set": [
-          "geosite-apple"
-        ],
-        "outbound": "🍎 Apple",
         "action": "route"
       },
       {

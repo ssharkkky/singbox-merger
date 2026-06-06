@@ -570,7 +570,7 @@ def transform_for_ios(config: dict) -> dict:
 
     # 2. 路由规则只保留核心 rule_set
     keep_rule_sets = {"geosite-cn", "geosite-geolocation-!cn", "geoip-cn",
-                       "geosite-category-ads-all", "game-download"}
+                       "geosite-category-ads-all", "game-download", "geosite-apple"}
     c["route"]["rule_set"] = [rs for rs in c["route"]["rule_set"]
                                if rs["tag"] in keep_rule_sets]
 
