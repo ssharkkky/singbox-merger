@@ -574,6 +574,7 @@ def transform_for_ios(config: dict) -> dict:
     c["route"]["rule_set"] = [rs for rs in c["route"]["rule_set"]
                                if rs["tag"] in keep_rule_sets]
 
+    _ios_out_tags = {o.get("tag") for o in c["outbounds"]}
     new_rules = []
     for r in c["route"]["rules"]:
         rs = r.get("rule_set", [])
@@ -590,6 +591,9 @@ def transform_for_ios(config: dict) -> dict:
         elif rs and all(s in keep_rule_sets for s in rs):
             new_rules.append(r)
         elif act == "reject" and rs:
+            new_rules.append(r)
+        elif r.get("network") and out in _ios_out_tags:
+            # 保留按协议分流的规则(如 境外UDP→BWG),前提是出站仍存在
             new_rules.append(r)
     c["route"]["rules"] = new_rules
 
