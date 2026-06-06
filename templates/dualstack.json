@@ -12,7 +12,7 @@
         "server": "one.one.one.one",
         "server_port": 443,
         "path": "/dns-query",
-        "detour": "🚀 节点选择",
+        "detour": "🇺🇸 BWG-LA",
         "domain_resolver": "dns_bootstrap"
       },
       {
