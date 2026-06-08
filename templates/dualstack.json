@@ -268,8 +268,7 @@
       },
       {
         "network": "udp",
-        "outbound": "🇺🇸 BWG-LA",
-        "action": "route"
+        "action": "reject"
       },
       {
         "rule_set": [
