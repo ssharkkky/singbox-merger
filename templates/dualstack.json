@@ -191,6 +191,16 @@
       "interrupt_exist_connections": false
     },
     {
+      "type": "selector",
+      "tag": "🔰 谷歌系",
+      "outbounds": [
+        "Reality",
+        "Hy2",
+        "🚀 节点选择"
+      ],
+      "default": "Reality"
+    },
+    {
       "type": "direct",
       "tag": "DIRECT"
     },
@@ -283,6 +293,22 @@
           "geosite-epicgames"
         ],
         "outbound": "🎮 游戏",
+        "action": "route"
+      },
+      {
+        "domain_suffix": [
+          "youtube.com",
+          "youtu.be",
+          "youtube-nocookie.com",
+          "googlevideo.com",
+          "ytimg.com",
+          "ggpht.com",
+          "google.com",
+          "gstatic.com",
+          "googleapis.com",
+          "googleusercontent.com"
+        ],
+        "outbound": "🔰 谷歌系",
         "action": "route"
       },
       {
