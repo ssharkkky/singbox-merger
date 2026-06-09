@@ -36,6 +36,13 @@
     ],
     "rules": [
       {
+        "query_type": [
+          "HTTPS",
+          "SVCB"
+        ],
+        "action": "reject"
+      },
+      {
         "rule_set": [
           "geosite-category-ads-all"
         ],
