@@ -592,8 +592,6 @@ def transform_for_ios(config: dict) -> dict:
             new_rules.append(r)
         elif act == "reject":
             new_rules.append(r)
-        elif (r.get("domain_suffix") or r.get("domain")) and out in _ios_out_tags:
-            new_rules.append(r)
         elif r.get("network") and out in _ios_out_tags:
             # 保留按协议分流的规则(如 境外UDP→BWG),前提是出站仍存在
             new_rules.append(r)
