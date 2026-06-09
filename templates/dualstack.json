@@ -58,8 +58,7 @@
           "HTTPS",
           "SVCB"
         ],
-        "action": "predefined",
-        "rcode": "NOERROR"
+        "action": "reject"
       },
       {
         "query_type": [
