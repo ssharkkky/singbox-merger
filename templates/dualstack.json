@@ -12,7 +12,7 @@
         "server": "one.one.one.one",
         "server_port": 443,
         "path": "/dns-query",
-        "detour": "Hy2",
+        "detour": "🚀 节点选择",
         "domain_resolver": "dns_bootstrap"
       },
       {
@@ -36,13 +36,6 @@
     ],
     "rules": [
       {
-        "query_type": [
-          "HTTPS",
-          "SVCB"
-        ],
-        "action": "reject"
-      },
-      {
         "rule_set": [
           "geosite-category-ads-all"
         ],
@@ -59,6 +52,13 @@
           "geosite-cn"
         ],
         "server": "dns_direct"
+      },
+      {
+        "query_type": [
+          "AAAA"
+        ],
+        "action": "predefined",
+        "rcode": "NOERROR"
       }
     ],
     "final": "dns_proxy",
@@ -272,6 +272,10 @@
         ],
         "outbound": "DIRECT",
         "action": "route"
+      },
+      {
+        "ip_version": 6,
+        "action": "reject"
       },
       {
         "network": "udp",
