@@ -55,6 +55,14 @@
       },
       {
         "query_type": [
+          "HTTPS",
+          "SVCB"
+        ],
+        "action": "predefined",
+        "rcode": "NOERROR"
+      },
+      {
+        "query_type": [
           "AAAA"
         ],
         "action": "predefined",
