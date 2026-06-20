@@ -116,7 +116,7 @@
         "🇺🇸 美国",
         "DIRECT"
       ],
-      "default": "🇺🇸 美国"
+      "default": "♻️ 自动选择"
     },
     {
       "type": "urltest",
