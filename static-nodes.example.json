@@ -1,8 +1,7 @@
-[
-  {
-    "_comment": "固定节点(自有基础设施)。原生 sing-box outbound, 不走 URI 解析, 无损耗。",
-    "_comment2": "实际文件 static-nodes.json 含凭据, 已 .gitignore, 不提交。本文件仅示结构。",
-    "node": {
+{
+  "format": "singbox-merger-private-v1",
+  "nodes": [
+    {
       "type": "vless",
       "tag": "Reality",
       "server": "1.2.3.4",
@@ -12,34 +11,46 @@
       "tls": {
         "enabled": true,
         "server_name": "<steal-sni>",
-        "utls": { "enabled": true, "fingerprint": "chrome" },
-        "reality": { "enabled": true, "public_key": "<pbk>", "short_id": "<sid>" }
-      }
-    }
-  },
-  {
-    "_comment": "链式协议示例: ShadowTLS v3 + SS2022。shells 里的外壳只追加、不分组; node 通过 detour 套在外壳上, node 才是可选节点。",
-    "shells": [
-      {
-        "type": "shadowtls",
-        "tag": "st-out-LA",
-        "server": "1.2.3.4",
-        "server_port": 443,
-        "version": 3,
-        "password": "<shadowtls-password>",
-        "tls": {
+        "utls": {"enabled": true, "fingerprint": "chrome"},
+        "reality": {
           "enabled": true,
-          "server_name": "www.microsoft.com",
-          "utls": { "enabled": true, "fingerprint": "chrome" }
+          "public_key": "<pbk>",
+          "short_id": "<sid>"
         }
       }
-    ],
-    "node": {
+    },
+    {
       "type": "shadowsocks",
       "tag": "ST-LA",
       "method": "2022-blake3-aes-128-gcm",
       "password": "<ss2022-psk>",
       "detour": "st-out-LA"
     }
+  ],
+  "shells": [
+    {
+      "type": "shadowtls",
+      "tag": "st-out-LA",
+      "server": "1.2.3.4",
+      "server_port": 443,
+      "version": 3,
+      "password": "<shadowtls-password>",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.microsoft.com",
+        "utls": {"enabled": true, "fingerprint": "chrome"}
+      }
+    }
+  ],
+  "profile_endpoints": {
+    "ios": [
+      {
+        "type": "wireguard",
+        "tag": "Home",
+        "address": ["10.99.0.2/32"],
+        "private_key": "<wireguard-private-key>",
+        "peers": []
+      }
+    ]
   }
-]
+}

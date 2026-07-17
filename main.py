@@ -16,6 +16,7 @@ import logging
 import re
 import socket
 import asyncio
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs, unquote
 from typing import Optional
@@ -27,7 +28,6 @@ import uvicorn
 
 # ── Config ──────────────────────────────────────────────────────────
 TEMPLATES_DIR = Path(__file__).parent / "templates"
-STATIC_NODES_PATH = Path(__file__).parent / "static-nodes.json"
 LOG_LEVEL = "info"
 FETCH_PROXY: Optional[str] = None
 FETCH_TIMEOUT = 30
@@ -48,6 +48,11 @@ INJECT_RULES: dict[str, dict] = {
 }
 
 logging.basicConfig(level=getattr(logging, LOG_LEVEL.upper(), logging.INFO))
+# HTTP client INFO logs include full request URLs; subscription paths are credentials.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+# Also cover deployment via `uvicorn main:app`, not only run_server().
+logging.getLogger("uvicorn.access").disabled = True
 log = logging.getLogger("merger")
 
 app = FastAPI(title="Sing-Box Merger")
@@ -70,6 +75,14 @@ def decode_base64(s: str) -> str:
 
 
 NODE_PREFIXES = ("vmess://", "vless://", "trojan://", "ss://", "hysteria2://", "hy2://")
+PRIVATE_BUNDLE_FORMAT = "singbox-merger-private-v1"
+
+
+@dataclass
+class SubscriptionPayload:
+    nodes: list[dict] = field(default_factory=list)
+    extra_outbounds: list[dict] = field(default_factory=list)
+    profile_endpoints: dict[str, list[dict]] = field(default_factory=dict)
 
 
 def split_lines(text: str) -> list[str]:
@@ -261,6 +274,59 @@ def parse_raw_nodes(text: str) -> list[dict]:
     return nodes
 
 
+def parse_subscription_payload(raw: str) -> SubscriptionPayload:
+    """Parse a normal subscription or an explicit private bundle.
+
+    Private nodes, auxiliary outbounds and profile endpoints are accepted only
+    from a source explicitly fetched for this request. No local secret file is
+    consulted.
+    """
+    if raw.strip().startswith("{"):
+        try:
+            cfg = json.loads(raw)
+        except json.JSONDecodeError:
+            cfg = None
+        if isinstance(cfg, dict):
+            if cfg.get("format") == PRIVATE_BUNDLE_FORMAT:
+                raw_nodes = cfg.get("nodes", [])
+                raw_shells = cfg.get("shells", [])
+                nodes = [
+                    item for item in raw_nodes
+                    if isinstance(item, dict) and item.get("tag")
+                ] if isinstance(raw_nodes, list) else []
+                shells = [
+                    item for item in raw_shells
+                    if isinstance(item, dict) and item.get("tag")
+                ] if isinstance(raw_shells, list) else []
+
+                endpoints: dict[str, list[dict]] = {}
+                raw_endpoints = cfg.get("profile_endpoints", {})
+                if isinstance(raw_endpoints, dict):
+                    for profile, items in raw_endpoints.items():
+                        if isinstance(profile, str) and isinstance(items, list):
+                            valid = [
+                                item for item in items
+                                if isinstance(item, dict) and item.get("tag")
+                            ]
+                            if valid:
+                                endpoints[profile] = valid
+                return SubscriptionPayload(nodes, shells, endpoints)
+
+            obs = cfg.get("outbounds", [])
+            if isinstance(obs, list):
+                nodes = [
+                    item for item in obs
+                    if isinstance(item, dict)
+                    and item.get("type") not in (
+                        "selector", "urltest", "direct", "block", "dns"
+                    )
+                ]
+                if nodes:
+                    return SubscriptionPayload(nodes=nodes)
+
+    return SubscriptionPayload(nodes=parse_raw_nodes(raw))
+
+
 PRIVATE_NETS = [
     ipaddress.ip_network("0.0.0.0/8"),
     ipaddress.ip_network("10.0.0.0/8"),
@@ -280,7 +346,7 @@ async def validate_url(url: str):
     u = urlparse(url)
     host = u.hostname
     if not host:
-        raise HTTPException(400, f"Invalid URL: {url[:60]}")
+        raise HTTPException(400, "Invalid subscription URL")
     try:
         ip = ipaddress.ip_address(host)
         for net in PRIVATE_NETS:
@@ -301,10 +367,17 @@ async def validate_url(url: str):
                 raise HTTPException(400, f"Private IP blocked: {host} -> {ip}")
 
 
-async def fetch_one_sub(url: str, timeout: int = FETCH_TIMEOUT) -> list[dict]:
-    """拉取单个订阅链接"""
+def source_label(url: str) -> str:
+    """Return a log-safe source label without path, query, or credentials."""
+    parsed = urlparse(url)
+    return parsed.hostname or "<invalid-host>"
+
+
+async def fetch_one_sub(url: str, timeout: int = FETCH_TIMEOUT) -> SubscriptionPayload:
+    """拉取并解析单个订阅链接。"""
     await validate_url(url)
-    log.info(f"Fetching: {url[:80]}...")
+    label = source_label(url)
+    log.info("Fetching subscription from %s", label)
     async with httpx.AsyncClient(
         proxy=FETCH_PROXY, timeout=timeout, follow_redirects=True,
     ) as client:
@@ -312,52 +385,61 @@ async def fetch_one_sub(url: str, timeout: int = FETCH_TIMEOUT) -> list[dict]:
         resp.raise_for_status()
         raw = resp.text
 
-    # 如果是 sing-box JSON，提取其中的 outbounds
-    if raw.strip().startswith("{"):
-        try:
-            cfg = json.loads(raw)
-            obs = cfg.get("outbounds", [])
-            nodes = [o for o in obs if o.get("type") not in ("selector", "urltest", "direct", "block", "dns")]
-            if nodes:
-                log.info(f"Extracted {len(nodes)} outbounds from sing-box JSON")
-                return nodes
-        except json.JSONDecodeError:
-            pass
-
-    # 标准 base64 / 纯文本 节点列表
-    nodes = []
-    for line in split_lines(raw):
-        if line.startswith("proxies:") or line.startswith("Proxy:"):
-            continue
-        node = parse_node(line)
-        if node:
-            nodes.append(node)
-    log.info(f"Parsed {len(nodes)} nodes from {url[:60]}")
-    return nodes
+    payload = parse_subscription_payload(raw)
+    log.info(
+        "Parsed %d nodes, %d auxiliary outbounds from %s",
+        len(payload.nodes), len(payload.extra_outbounds), label,
+    )
+    return payload
 
 
-async def fetch_subscriptions(urls: list[str]) -> list[dict]:
-    """并行拉取多个订阅链接，合并去重"""
+async def fetch_subscriptions(urls: list[str]) -> SubscriptionPayload:
+    """并行拉取多个订阅链接，合并节点、附属 outbound 和 profile endpoint。"""
     if not urls:
-        return []
+        return SubscriptionPayload()
     tasks = [fetch_one_sub(u) for u in urls]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    seen: set[str] = set()
-    merged: list[dict] = []
+    node_tags: set[str] = set()
+    shell_tags: set[str] = set()
+    endpoint_tags: dict[str, set[str]] = {}
+    merged_nodes: list[dict] = []
+    merged_shells: list[dict] = []
+    merged_endpoints: dict[str, list[dict]] = {}
+
     for i, res in enumerate(results):
         if isinstance(res, Exception):
             if isinstance(res, HTTPException):
                 raise res  # SSRF 等安全异常直接抛出，不吞
-            log.warning(f"Subscription [{i}] failed: {res}")
+            log.warning("Subscription [%d] failed: %s", i, type(res).__name__)
             continue
-        for node in res:
+        if not isinstance(res, SubscriptionPayload):
+            log.warning("Subscription [%d] returned an invalid payload", i)
+            continue
+        for node in res.nodes:
             tag = node.get("tag", "")
-            if tag and tag not in seen:
-                seen.add(tag)
-                merged.append(node)
-    log.info(f"Merged {len(merged)} unique nodes from {len(urls)} subscriptions")
-    return merged
+            if tag and tag not in node_tags:
+                node_tags.add(tag)
+                merged_nodes.append(node)
+        for shell in res.extra_outbounds:
+            tag = shell.get("tag", "")
+            if tag and tag not in shell_tags:
+                shell_tags.add(tag)
+                merged_shells.append(shell)
+        for profile, endpoints in res.profile_endpoints.items():
+            seen = endpoint_tags.setdefault(profile, set())
+            target = merged_endpoints.setdefault(profile, [])
+            for endpoint in endpoints:
+                tag = endpoint.get("tag", "")
+                if tag and tag not in seen:
+                    seen.add(tag)
+                    target.append(endpoint)
+
+    log.info(
+        "Merged %d unique nodes and %d auxiliary outbounds from %d subscriptions",
+        len(merged_nodes), len(merged_shells), len(urls),
+    )
+    return SubscriptionPayload(merged_nodes, merged_shells, merged_endpoints)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -410,43 +492,6 @@ def categorize_nodes(nodes: list[dict]) -> dict[str, list[str]]:
             if not match or any(kw.lower() in tag.lower() for kw in match):
                 groups[group_tag].append(tag)
     return groups
-
-
-def load_static_nodes() -> tuple[list[dict], list[dict]]:
-    """加载固定节点(自有基础设施, 原生 sing-box outbound)。
-    static-nodes.json 是一个 entry 列表, 每个 entry:
-      {"node": {...主 outbound, 参与正常分组...},
-       "shells": [{...附属 outbound, 仅追加不分组, 如 shadowtls 外壳...}]}
-    返回 (nodes, shells)。文件含凭据, 已在 .gitignore, 不提交。"""
-    try:
-        entries = json.loads(STATIC_NODES_PATH.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return [], []
-    except Exception as e:
-        log.warning(f"static-nodes load failed: {e}")
-        return [], []
-    nodes, shells = [], []
-    for e in entries:
-        n = e.get("node")
-        if isinstance(n, dict) and n.get("tag"):
-            nodes.append(n)
-        for s in e.get("shells", []):
-            if isinstance(s, dict) and s.get("tag"):
-                shells.append(s)
-    return nodes, shells
-
-
-def merge_static_nodes(all_nodes: list[dict]) -> tuple[list[dict], list[dict]]:
-    """把固定节点并入节点列表(固定节点优先, 去除订阅里同 tag 的副本), 返回 (合并后节点, shells)。"""
-    static_nodes, shells = load_static_nodes()
-    if not static_nodes and not shells:
-        return all_nodes, []
-    static_tags = {n["tag"] for n in static_nodes}
-    merged = [n for n in all_nodes if n.get("tag") not in static_tags]
-    merged.extend(static_nodes)
-    if static_nodes:
-        log.info(f"Static nodes injected: {sorted(static_tags)}; shells: {[s.get('tag') for s in shells]}")
-    return merged, shells
 
 
 def inject_into_template(template: dict, nodes: list[dict], expand: bool = True,
@@ -528,8 +573,10 @@ def inject_into_template(template: dict, nodes: list[dict], expand: bool = True,
 
 # ══════════════════════════════════════════════════════════════════════
 
-def transform_for_ios(config: dict) -> dict:
-    """从 dualstack 裁剪出 iOS 精简版"""
+def transform_for_ios(
+    config: dict, profile_endpoints: Optional[list[dict]] = None
+) -> dict:
+    """从 dualstack 裁剪出 iOS 精简版。敏感 endpoint 必须由本次请求显式传入。"""
     import copy
     c = copy.deepcopy(config)
 
@@ -597,24 +644,37 @@ def transform_for_ios(config: dict) -> dict:
             new_rules.append(r)
     c["route"]["rules"] = new_rules
 
-    # 回家(仅 iOS): 从 static-nodes.json 注入 WireGuard endpoint + 分流规则(主模板保持纯净,不含 WG)
-    try:
-        _entries = json.loads(STATIC_NODES_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        _entries = []
-    _home_eps = [e["endpoint"] for e in _entries
-                 if isinstance(e.get("endpoint"), dict) and e["endpoint"].get("tag")]
+    # 回家 endpoint 只能由本次请求显式提供；禁止从本地敏感文件隐式读取。
+    _home_eps = [
+        ep for ep in (profile_endpoints or [])
+        if isinstance(ep, dict) and ep.get("tag")
+    ]
     if _home_eps:
         eps = c.setdefault("endpoints", [])
-        _exist = {x.get("tag") for x in eps}
-        for ep in _home_eps:
-            if ep["tag"] not in _exist:
-                eps.append(copy.deepcopy(ep)); _exist.add(ep["tag"])
-        _pos = next((i for i, r in enumerate(c["route"]["rules"]) if r.get("ip_is_private")),
-                    len(c["route"]["rules"]))
-        c["route"]["rules"].insert(_pos, {
-            "ip_cidr": ["192.168.0.0/24", "10.99.0.0/24"],
-            "outbound": _home_eps[0]["tag"], "action": "route"})
+        _exist = {item.get("tag") for item in eps}
+        for endpoint in _home_eps:
+            if endpoint["tag"] not in _exist:
+                eps.append(copy.deepcopy(endpoint))
+                _exist.add(endpoint["tag"])
+        _pos = next(
+            (
+                i for i, rule in enumerate(c["route"]["rules"])
+                if rule.get("ip_is_private")
+            ),
+            len(c["route"]["rules"]),
+        )
+        c["route"]["rules"].insert(
+            _pos,
+            {
+                "ip_cidr": [
+                    "192.168.0.0/24",
+                    "192.168.2.0/24",
+                    "10.99.0.0/24",
+                ],
+                "outbound": _home_eps[0]["tag"],
+                "action": "route",
+            },
+        )
 
     # 3. 删 mixed-in inbound
     c["inbounds"] = [i for i in c["inbounds"] if i.get("tag") != "mixed-in"]
@@ -739,13 +799,14 @@ async def api_merge(request: Request):
     if not urls and not raw:
         raise HTTPException(400, "Need at least one subscription URL or raw nodes")
 
-    # 收集所有节点
+    # 收集所有节点；附属 outbound / profile endpoint 仅来自本次显式订阅源。
     all_nodes: list[dict] = []
+    subscription_payload = SubscriptionPayload()
 
     if urls:
         try:
-            sub_nodes = await fetch_subscriptions(urls)
-            all_nodes.extend(sub_nodes)
+            subscription_payload = await fetch_subscriptions(urls)
+            all_nodes.extend(subscription_payload.nodes)
         except Exception as e:
             raise HTTPException(502, f"Subscription fetch error: {e}")
 
@@ -762,17 +823,21 @@ async def api_merge(request: Request):
         all_nodes = all_nodes[:limit]
         log.info(f"Trimmed to {limit} nodes")
 
-    # 固定节点(自有基础设施)注入
-    all_nodes, static_shells = merge_static_nodes(all_nodes)
-
     if not all_nodes:
         raise HTTPException(422, "No valid nodes found")
 
     template = load_template(template_name)
-    config = inject_into_template(template, all_nodes, expand, extra_outbounds=static_shells)
+    config = inject_into_template(
+        template,
+        all_nodes,
+        expand,
+        extra_outbounds=subscription_payload.extra_outbounds,
+    )
 
     if profile == "ios":
-        config = transform_for_ios(config)
+        config = transform_for_ios(
+            config, subscription_payload.profile_endpoints.get("ios", [])
+        )
         log.info("Applied iOS profile transform")
     elif profile == "router":
         config = transform_for_router(config)
@@ -794,12 +859,14 @@ async def api_merge_get(
 ):
     """GET /api/merge?url=...&template=dualstack&profile=ios"""
     all_nodes: list[dict] = []
+    subscription_payload = SubscriptionPayload()
 
     if url:
         urls_list = [u.strip() for u in url.split(",") if u.strip()]
         if urls_list:
             try:
-                all_nodes = await fetch_subscriptions(urls_list)
+                subscription_payload = await fetch_subscriptions(urls_list)
+                all_nodes = list(subscription_payload.nodes)
             except Exception as e:
                 raise HTTPException(502, f"Fetch error: {e}")
 
@@ -814,17 +881,21 @@ async def api_merge_get(
         all_nodes = all_nodes[:limit]
         log.info(f"Trimmed to {limit} nodes")
 
-    # 固定节点(自有基础设施)注入
-    all_nodes, static_shells = merge_static_nodes(all_nodes)
-
     if not all_nodes:
         raise HTTPException(422, "No valid nodes found")
 
     tmpl = load_template(template)
-    config = inject_into_template(tmpl, all_nodes, expand, extra_outbounds=static_shells)
+    config = inject_into_template(
+        tmpl,
+        all_nodes,
+        expand,
+        extra_outbounds=subscription_payload.extra_outbounds,
+    )
 
     if profile == "ios":
-        config = transform_for_ios(config)
+        config = transform_for_ios(
+            config, subscription_payload.profile_endpoints.get("ios", [])
+        )
         log.info("Applied iOS profile transform")
     elif profile == "router":
         config = transform_for_router(config)
@@ -1048,5 +1119,16 @@ async def index():
 # Main
 # ══════════════════════════════════════════════════════════════════════
 
+def run_server():
+    """Run the public merger without URI access logs (subscription URLs are secrets)."""
+    uvicorn.run(
+        app,
+        host="127.0.0.1",
+        port=25600,
+        log_level=LOG_LEVEL,
+        access_log=False,
+    )
+
+
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=25600, log_level=LOG_LEVEL)
+    run_server()
