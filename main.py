@@ -18,7 +18,7 @@ import socket
 import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
-from urllib.parse import urlparse, parse_qs, unquote
+from urllib.parse import urljoin, urlparse, parse_qs, unquote
 from typing import Optional
 
 import httpx
@@ -31,6 +31,9 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 LOG_LEVEL = "info"
 FETCH_PROXY: Optional[str] = None
 FETCH_TIMEOUT = 30
+FETCH_DNS_TIMEOUT = 8
+FETCH_MAX_REDIRECTS = 5
+FETCH_MAX_BYTES = 5 * 1024 * 1024
 
 # ── 节点分组匹配规则 ────────────────────────────────────────────────
 # key = 模板 outbound tag（空 outbounds 数组的槽位）
@@ -327,63 +330,219 @@ def parse_subscription_payload(raw: str) -> SubscriptionPayload:
     return SubscriptionPayload(nodes=parse_raw_nodes(raw))
 
 
-PRIVATE_NETS = [
-    ipaddress.ip_network("0.0.0.0/8"),
-    ipaddress.ip_network("10.0.0.0/8"),
-    ipaddress.ip_network("127.0.0.0/8"),
-    ipaddress.ip_network("169.254.0.0/16"),
-    ipaddress.ip_network("172.16.0.0/12"),
-    ipaddress.ip_network("192.168.0.0/16"),
-    ipaddress.ip_network("224.0.0.0/4"),
-    ipaddress.ip_network("::1/128"),
-    ipaddress.ip_network("fc00::/7"),
-    ipaddress.ip_network("fe80::/10"),
-]
+def _normalize_ip(value: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
+    """Normalize IPv4-mapped IPv6 so ::ffff:127.0.0.1 is treated as loopback."""
+    ip = ipaddress.ip_address(value)
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        return ip.ipv4_mapped
+    return ip
+
+
+def _require_global_ip(value: str, host: str) -> str:
+    ip = _normalize_ip(value)
+    if not ip.is_global:
+        raise HTTPException(400, f"Non-public subscription address blocked: {host}")
+    return str(ip)
+
+
+async def _resolve_public_addresses(url: str) -> tuple[str, int, list[str]]:
+    """Resolve one URL once and return only validated, globally routable addresses."""
+    try:
+        parsed = urlparse(url)
+        scheme = parsed.scheme.lower()
+        host = parsed.hostname
+        port = parsed.port if parsed.port is not None else (443 if scheme == "https" else 80)
+    except ValueError:
+        raise HTTPException(400, "Invalid subscription URL")
+
+    if scheme not in ("http", "https") or not host:
+        raise HTTPException(400, "Subscription URL must use http or https")
+
+    try:
+        return host, port, [_require_global_ip(host, host)]
+    except ValueError:
+        pass
+
+    try:
+        dns_host = host.encode("idna").decode("ascii")
+    except UnicodeError:
+        raise HTTPException(400, "Invalid subscription hostname")
+
+    loop = asyncio.get_running_loop()
+    try:
+        lookup = loop.run_in_executor(
+            None,
+            lambda: socket.getaddrinfo(
+                dns_host,
+                port,
+                family=socket.AF_UNSPEC,
+                type=socket.SOCK_STREAM,
+                proto=socket.IPPROTO_TCP,
+            ),
+        )
+        addrs = await asyncio.wait_for(lookup, timeout=FETCH_DNS_TIMEOUT)
+    except asyncio.TimeoutError:
+        raise HTTPException(400, f"DNS resolution timed out: {host}")
+    except socket.gaierror:
+        raise HTTPException(400, f"Cannot resolve: {host}")
+
+    resolved: list[str] = []
+    for addr in addrs:
+        ip = _require_global_ip(addr[4][0], host)
+        if ip not in resolved:
+            resolved.append(ip)
+    if not resolved:
+        raise HTTPException(400, f"Cannot resolve: {host}")
+    return host, port, resolved
 
 
 async def validate_url(url: str):
-    """检查 URL 是否指向内网地址（防 SSRF）"""
-    u = urlparse(url)
-    host = u.hostname
-    if not host:
-        raise HTTPException(400, "Invalid subscription URL")
-    try:
-        ip = ipaddress.ip_address(host)
-        for net in PRIVATE_NETS:
-            if ip in net:
-                raise HTTPException(400, f"Private IP blocked: {host}")
-        return
-    except ValueError:
-        pass  # 域名，需解析 DNS
-    loop = asyncio.get_running_loop()
-    try:
-        addrs = await loop.run_in_executor(None, socket.getaddrinfo, host, 0)
-    except socket.gaierror:
-        raise HTTPException(400, f"Cannot resolve: {host}")
-    for addr in addrs:
-        ip = ipaddress.ip_address(addr[4][0])
-        for net in PRIVATE_NETS:
-            if ip in net:
-                raise HTTPException(400, f"Private IP blocked: {host} -> {ip}")
+    """Validate scheme and ensure every resolved address is globally routable."""
+    await _resolve_public_addresses(url)
+
+
+class SubscriptionFetchError(Exception):
+    """A log-safe upstream failure that must not contain a credential-bearing URL."""
+
+
+def _host_header(host: str, port: int, scheme: str) -> str:
+    encoded_host = host.encode("idna").decode("ascii")
+    if ":" in encoded_host:
+        encoded_host = f"[{encoded_host}]"
+    default_port = 443 if scheme == "https" else 80
+    return encoded_host if port == default_port else f"{encoded_host}:{port}"
+
+
+async def _send_pinned_request(
+    client: httpx.AsyncClient,
+    url: str,
+    host: str,
+    port: int,
+    address: str,
+) -> httpx.Response:
+    """Connect to the validated IP while retaining the original Host and TLS SNI."""
+    parsed = urlparse(url)
+    pinned_url = httpx.URL(url).copy_with(host=address)
+    request = client.build_request(
+        "GET",
+        pinned_url,
+        headers={
+            "Host": _host_header(host, port, parsed.scheme.lower()),
+            "Accept-Encoding": "identity",
+        },
+    )
+    if parsed.scheme.lower() == "https":
+        request.extensions["sni_hostname"] = host.encode("idna").decode("ascii")
+    return await client.send(request, stream=True)
+
+
+async def _fetch_subscription_text(url: str, timeout: int = FETCH_TIMEOUT) -> str:
+    """Fetch with pinned DNS, per-hop redirect validation and a decoded size cap."""
+    current_url = url
+    for redirect_count in range(FETCH_MAX_REDIRECTS + 1):
+        host, port, addresses = await _resolve_public_addresses(current_url)
+        response: Optional[httpx.Response] = None
+        last_error: Optional[Exception] = None
+
+        client = httpx.AsyncClient(
+            proxy=FETCH_PROXY,
+            timeout=timeout,
+            follow_redirects=False,
+            trust_env=False,
+            limits=httpx.Limits(max_keepalive_connections=0),
+        )
+        try:
+            for address in addresses:
+                try:
+                    response = await _send_pinned_request(
+                        client, current_url, host, port, address
+                    )
+                    break
+                except httpx.HTTPError as exc:
+                    last_error = exc
+        except Exception:
+            await client.aclose()
+            raise
+
+        if response is None:
+            await client.aclose()
+            raise SubscriptionFetchError(
+                f"Subscription connection failed for {host}"
+            ) from last_error
+
+        try:
+            if response.status_code in (301, 302, 303, 307, 308):
+                location = response.headers.get("location")
+                if not location:
+                    raise SubscriptionFetchError(
+                        f"Subscription redirect missing Location for {host}"
+                    )
+                if redirect_count >= FETCH_MAX_REDIRECTS:
+                    raise SubscriptionFetchError(
+                        f"Too many subscription redirects for {host}"
+                    )
+                next_url = urljoin(current_url, location)
+                if (
+                    urlparse(current_url).scheme.lower() == "https"
+                    and urlparse(next_url).scheme.lower() != "https"
+                ):
+                    raise HTTPException(400, "HTTPS downgrade redirect blocked")
+                current_url = next_url
+                continue
+
+            if response.status_code >= 400:
+                raise SubscriptionFetchError(
+                    f"Subscription returned HTTP {response.status_code} from {host}"
+                )
+
+            content_length = response.headers.get("content-length")
+            if content_length:
+                try:
+                    if int(content_length) > FETCH_MAX_BYTES:
+                        raise SubscriptionFetchError(
+                            f"Subscription response too large from {host}"
+                        )
+                except ValueError:
+                    pass
+
+            chunks: list[bytes] = []
+            total = 0
+            async for chunk in response.aiter_bytes():
+                total += len(chunk)
+                if total > FETCH_MAX_BYTES:
+                    raise SubscriptionFetchError(
+                        f"Subscription response too large from {host}"
+                    )
+                chunks.append(chunk)
+            data = b"".join(chunks)
+            encoding = response.encoding or "utf-8"
+            try:
+                return data.decode(encoding, errors="replace")
+            except LookupError:
+                return data.decode("utf-8", errors="replace")
+        finally:
+            try:
+                await response.aclose()
+            finally:
+                await client.aclose()
+
+    raise SubscriptionFetchError("Too many subscription redirects")
 
 
 def source_label(url: str) -> str:
     """Return a log-safe source label without path, query, or credentials."""
-    parsed = urlparse(url)
-    return parsed.hostname or "<invalid-host>"
+    try:
+        parsed = urlparse(url)
+        return parsed.hostname or "<invalid-host>"
+    except ValueError:
+        return "<invalid-host>"
 
 
 async def fetch_one_sub(url: str, timeout: int = FETCH_TIMEOUT) -> SubscriptionPayload:
     """拉取并解析单个订阅链接。"""
-    await validate_url(url)
     label = source_label(url)
     log.info("Fetching subscription from %s", label)
-    async with httpx.AsyncClient(
-        proxy=FETCH_PROXY, timeout=timeout, follow_redirects=True,
-    ) as client:
-        resp = await client.get(url)
-        resp.raise_for_status()
-        raw = resp.text
+    raw = await _fetch_subscription_text(url, timeout)
 
     payload = parse_subscription_payload(raw)
     log.info(
