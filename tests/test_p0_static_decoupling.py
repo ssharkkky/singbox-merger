@@ -241,31 +241,15 @@ class StaticNodeDecouplingTests(unittest.TestCase):
         )
 
     def test_fetch_logs_never_include_subscription_path_or_query(self):
-        class FakeResponse:
-            text = "trojan://password@public.example:443#public-node"
-
-            def raise_for_status(self):
-                return None
-
-        class FakeClient:
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *_args):
-                return None
-
-            async def get(self, _url):
-                return FakeResponse()
-
-        async def fake_validate(_url):
-            return None
+        async def fake_fetch_text(_url, _timeout):
+            return "trojan://password@public.example:443#public-node"
 
         secret_url = (
             "https://private.example/private-nodes/SECRET-PATH.json"
             "?token=SECRET-QUERY"
         )
-        with patch.object(main, "validate_url", fake_validate), patch.object(
-            main.httpx, "AsyncClient", return_value=FakeClient()
+        with patch.object(
+            main, "_fetch_subscription_text", fake_fetch_text
         ), self.assertLogs("merger", level="INFO") as captured:
             payload = asyncio.run(main.fetch_one_sub(secret_url))
 
