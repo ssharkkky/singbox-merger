@@ -10,6 +10,7 @@ ref=${1:?"usage: deploy-release.sh <git-ref>"}
 repo_url=${MERGER_REPO_URL:-https://github.com/ssharkkky/singbox-merger.git}
 deploy_root=${MERGER_DEPLOY_ROOT:-/opt/singbox-merger-deploy}
 service=${MERGER_SERVICE:-singbox-merger.service}
+run_user=${MERGER_RUN_USER:-singbox-merger}
 skip_restart=${MERGER_SKIP_RESTART:-0}
 
 if [[ "$ref" == -* || ! "$ref" =~ ^[A-Za-z0-9._/-]+$ ]]; then
@@ -33,14 +34,14 @@ if [[ -e "$release" ]]; then
 fi
 
 mv "$stage" "$release"
+chmod 0755 "$release"
 python3 -m venv "$release/.venv"
 "$release/.venv/bin/python" -m pip install \
   --disable-pip-version-check --no-deps -r "$release/requirements.lock"
 "$release/.venv/bin/python" -m pip check
-(
-  cd "$release"
-  PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m unittest discover -s tests -v
-)
+runuser -u "$run_user" -- env PYTHONDONTWRITEBYTECODE=1 \
+  "$release/.venv/bin/python" -m unittest discover \
+  -s "$release/tests" -t "$release" -v
 
 previous=""
 if [[ -L "$deploy_root/current" ]]; then
