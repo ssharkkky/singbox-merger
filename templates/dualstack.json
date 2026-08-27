@@ -416,7 +416,7 @@
   "http_clients": [
     {
       "tag": "http-client-proxy",
-      "detour": "🇺🇸 BWG-LA"
+      "detour": "🚀 节点选择"
     }
   ]
 }
