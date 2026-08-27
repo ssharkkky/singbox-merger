@@ -18,7 +18,7 @@ import socket
 import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
-from urllib.parse import urlparse, parse_qs, unquote
+from urllib.parse import urljoin, urlparse, parse_qs, unquote
 from typing import Optional
 
 import httpx
@@ -31,6 +31,17 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 LOG_LEVEL = "info"
 FETCH_PROXY: Optional[str] = None
 FETCH_TIMEOUT = 30
+FETCH_DNS_TIMEOUT = 8
+FETCH_MAX_REDIRECTS = 5
+FETCH_MAX_BYTES = 5 * 1024 * 1024
+MAX_REQUEST_BODY_BYTES = 2 * 1024 * 1024
+MAX_RAW_BYTES = 1 * 1024 * 1024
+MAX_SUBSCRIPTION_URLS = 8
+MAX_URL_BYTES = 4096
+MAX_MERGED_NODES = 5000
+MAX_TEMPLATE_NAME_BYTES = 64
+MAX_PROFILE_BYTES = 16
+ALLOWED_PROFILES = {"default", "ios", "router"}
 
 # ── 节点分组匹配规则 ────────────────────────────────────────────────
 # key = 模板 outbound tag（空 outbounds 数组的槽位）
@@ -83,6 +94,14 @@ class SubscriptionPayload:
     nodes: list[dict] = field(default_factory=list)
     extra_outbounds: list[dict] = field(default_factory=list)
     profile_endpoints: dict[str, list[dict]] = field(default_factory=dict)
+
+
+def subscription_payload_size(payload: SubscriptionPayload) -> int:
+    return (
+        len(payload.nodes)
+        + len(payload.extra_outbounds)
+        + sum(len(items) for items in payload.profile_endpoints.values())
+    )
 
 
 def split_lines(text: str) -> list[str]:
@@ -270,6 +289,8 @@ def parse_raw_nodes(text: str) -> list[dict]:
         node = parse_node(line)
         if node:
             nodes.append(node)
+            if len(nodes) > MAX_MERGED_NODES:
+                raise HTTPException(413, "Node count limit exceeded")
     log.info(f"Parsed {len(nodes)} nodes from raw text")
     return nodes
 
@@ -327,65 +348,223 @@ def parse_subscription_payload(raw: str) -> SubscriptionPayload:
     return SubscriptionPayload(nodes=parse_raw_nodes(raw))
 
 
-PRIVATE_NETS = [
-    ipaddress.ip_network("0.0.0.0/8"),
-    ipaddress.ip_network("10.0.0.0/8"),
-    ipaddress.ip_network("127.0.0.0/8"),
-    ipaddress.ip_network("169.254.0.0/16"),
-    ipaddress.ip_network("172.16.0.0/12"),
-    ipaddress.ip_network("192.168.0.0/16"),
-    ipaddress.ip_network("224.0.0.0/4"),
-    ipaddress.ip_network("::1/128"),
-    ipaddress.ip_network("fc00::/7"),
-    ipaddress.ip_network("fe80::/10"),
-]
+def _normalize_ip(value: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
+    """Normalize IPv4-mapped IPv6 so ::ffff:127.0.0.1 is treated as loopback."""
+    ip = ipaddress.ip_address(value)
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        return ip.ipv4_mapped
+    return ip
+
+
+def _require_global_ip(value: str, host: str) -> str:
+    ip = _normalize_ip(value)
+    if not ip.is_global:
+        raise HTTPException(400, f"Non-public subscription address blocked: {host}")
+    return str(ip)
+
+
+async def _resolve_public_addresses(url: str) -> tuple[str, int, list[str]]:
+    """Resolve one URL once and return only validated, globally routable addresses."""
+    try:
+        parsed = urlparse(url)
+        scheme = parsed.scheme.lower()
+        host = parsed.hostname
+        port = parsed.port if parsed.port is not None else (443 if scheme == "https" else 80)
+    except ValueError:
+        raise HTTPException(400, "Invalid subscription URL")
+
+    if scheme not in ("http", "https") or not host:
+        raise HTTPException(400, "Subscription URL must use http or https")
+
+    try:
+        return host, port, [_require_global_ip(host, host)]
+    except ValueError:
+        pass
+
+    try:
+        dns_host = host.encode("idna").decode("ascii")
+    except UnicodeError:
+        raise HTTPException(400, "Invalid subscription hostname")
+
+    loop = asyncio.get_running_loop()
+    try:
+        lookup = loop.run_in_executor(
+            None,
+            lambda: socket.getaddrinfo(
+                dns_host,
+                port,
+                family=socket.AF_UNSPEC,
+                type=socket.SOCK_STREAM,
+                proto=socket.IPPROTO_TCP,
+            ),
+        )
+        addrs = await asyncio.wait_for(lookup, timeout=FETCH_DNS_TIMEOUT)
+    except asyncio.TimeoutError:
+        raise HTTPException(400, f"DNS resolution timed out: {host}")
+    except socket.gaierror:
+        raise HTTPException(400, f"Cannot resolve: {host}")
+
+    resolved: list[str] = []
+    for addr in addrs:
+        ip = _require_global_ip(addr[4][0], host)
+        if ip not in resolved:
+            resolved.append(ip)
+    if not resolved:
+        raise HTTPException(400, f"Cannot resolve: {host}")
+    return host, port, resolved
 
 
 async def validate_url(url: str):
-    """检查 URL 是否指向内网地址（防 SSRF）"""
-    u = urlparse(url)
-    host = u.hostname
-    if not host:
-        raise HTTPException(400, "Invalid subscription URL")
-    try:
-        ip = ipaddress.ip_address(host)
-        for net in PRIVATE_NETS:
-            if ip in net:
-                raise HTTPException(400, f"Private IP blocked: {host}")
-        return
-    except ValueError:
-        pass  # 域名，需解析 DNS
-    loop = asyncio.get_running_loop()
-    try:
-        addrs = await loop.run_in_executor(None, socket.getaddrinfo, host, 0)
-    except socket.gaierror:
-        raise HTTPException(400, f"Cannot resolve: {host}")
-    for addr in addrs:
-        ip = ipaddress.ip_address(addr[4][0])
-        for net in PRIVATE_NETS:
-            if ip in net:
-                raise HTTPException(400, f"Private IP blocked: {host} -> {ip}")
+    """Validate scheme and ensure every resolved address is globally routable."""
+    await _resolve_public_addresses(url)
+
+
+class SubscriptionFetchError(Exception):
+    """A log-safe upstream failure that must not contain a credential-bearing URL."""
+
+
+def _host_header(host: str, port: int, scheme: str) -> str:
+    encoded_host = host.encode("idna").decode("ascii")
+    if ":" in encoded_host:
+        encoded_host = f"[{encoded_host}]"
+    default_port = 443 if scheme == "https" else 80
+    return encoded_host if port == default_port else f"{encoded_host}:{port}"
+
+
+async def _send_pinned_request(
+    client: httpx.AsyncClient,
+    url: str,
+    host: str,
+    port: int,
+    address: str,
+) -> httpx.Response:
+    """Connect to the validated IP while retaining the original Host and TLS SNI."""
+    parsed = urlparse(url)
+    pinned_url = httpx.URL(url).copy_with(host=address)
+    request = client.build_request(
+        "GET",
+        pinned_url,
+        headers={
+            "Host": _host_header(host, port, parsed.scheme.lower()),
+            "Accept-Encoding": "identity",
+        },
+    )
+    if parsed.scheme.lower() == "https":
+        request.extensions["sni_hostname"] = host.encode("idna").decode("ascii")
+    return await client.send(request, stream=True)
+
+
+async def _fetch_subscription_text(url: str, timeout: int = FETCH_TIMEOUT) -> str:
+    """Fetch with pinned DNS, per-hop redirect validation and a decoded size cap."""
+    current_url = url
+    for redirect_count in range(FETCH_MAX_REDIRECTS + 1):
+        host, port, addresses = await _resolve_public_addresses(current_url)
+        response: Optional[httpx.Response] = None
+        last_error: Optional[Exception] = None
+
+        client = httpx.AsyncClient(
+            proxy=FETCH_PROXY,
+            timeout=timeout,
+            follow_redirects=False,
+            trust_env=False,
+            limits=httpx.Limits(max_keepalive_connections=0),
+        )
+        try:
+            for address in addresses:
+                try:
+                    response = await _send_pinned_request(
+                        client, current_url, host, port, address
+                    )
+                    break
+                except httpx.HTTPError as exc:
+                    last_error = exc
+        except Exception:
+            await client.aclose()
+            raise
+
+        if response is None:
+            await client.aclose()
+            raise SubscriptionFetchError(
+                f"Subscription connection failed for {host}"
+            ) from last_error
+
+        try:
+            if response.status_code in (301, 302, 303, 307, 308):
+                location = response.headers.get("location")
+                if not location:
+                    raise SubscriptionFetchError(
+                        f"Subscription redirect missing Location for {host}"
+                    )
+                if redirect_count >= FETCH_MAX_REDIRECTS:
+                    raise SubscriptionFetchError(
+                        f"Too many subscription redirects for {host}"
+                    )
+                next_url = urljoin(current_url, location)
+                if (
+                    urlparse(current_url).scheme.lower() == "https"
+                    and urlparse(next_url).scheme.lower() != "https"
+                ):
+                    raise HTTPException(400, "HTTPS downgrade redirect blocked")
+                current_url = next_url
+                continue
+
+            if response.status_code >= 400:
+                raise SubscriptionFetchError(
+                    f"Subscription returned HTTP {response.status_code} from {host}"
+                )
+
+            content_length = response.headers.get("content-length")
+            if content_length:
+                try:
+                    if int(content_length) > FETCH_MAX_BYTES:
+                        raise SubscriptionFetchError(
+                            f"Subscription response too large from {host}"
+                        )
+                except ValueError:
+                    pass
+
+            chunks: list[bytes] = []
+            total = 0
+            async for chunk in response.aiter_bytes():
+                total += len(chunk)
+                if total > FETCH_MAX_BYTES:
+                    raise SubscriptionFetchError(
+                        f"Subscription response too large from {host}"
+                    )
+                chunks.append(chunk)
+            data = b"".join(chunks)
+            encoding = response.encoding or "utf-8"
+            try:
+                return data.decode(encoding, errors="replace")
+            except LookupError:
+                return data.decode("utf-8", errors="replace")
+        finally:
+            try:
+                await response.aclose()
+            finally:
+                await client.aclose()
+
+    raise SubscriptionFetchError("Too many subscription redirects")
 
 
 def source_label(url: str) -> str:
     """Return a log-safe source label without path, query, or credentials."""
-    parsed = urlparse(url)
-    return parsed.hostname or "<invalid-host>"
+    try:
+        parsed = urlparse(url)
+        return parsed.hostname or "<invalid-host>"
+    except ValueError:
+        return "<invalid-host>"
 
 
 async def fetch_one_sub(url: str, timeout: int = FETCH_TIMEOUT) -> SubscriptionPayload:
     """拉取并解析单个订阅链接。"""
-    await validate_url(url)
     label = source_label(url)
     log.info("Fetching subscription from %s", label)
-    async with httpx.AsyncClient(
-        proxy=FETCH_PROXY, timeout=timeout, follow_redirects=True,
-    ) as client:
-        resp = await client.get(url)
-        resp.raise_for_status()
-        raw = resp.text
+    raw = await _fetch_subscription_text(url, timeout)
 
     payload = parse_subscription_payload(raw)
+    if subscription_payload_size(payload) > MAX_MERGED_NODES:
+        raise HTTPException(413, "Subscription node count limit exceeded")
     log.info(
         "Parsed %d nodes, %d auxiliary outbounds from %s",
         len(payload.nodes), len(payload.extra_outbounds), label,
@@ -397,6 +576,8 @@ async def fetch_subscriptions(urls: list[str]) -> SubscriptionPayload:
     """并行拉取多个订阅链接，合并节点、附属 outbound 和 profile endpoint。"""
     if not urls:
         return SubscriptionPayload()
+    if len(urls) > MAX_SUBSCRIPTION_URLS:
+        raise HTTPException(413, "Too many subscription URLs")
     tasks = [fetch_one_sub(u) for u in urls]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -421,6 +602,8 @@ async def fetch_subscriptions(urls: list[str]) -> SubscriptionPayload:
             if tag and tag not in node_tags:
                 node_tags.add(tag)
                 merged_nodes.append(node)
+                if len(merged_nodes) > MAX_MERGED_NODES:
+                    raise HTTPException(413, "Merged node count limit exceeded")
         for shell in res.extra_outbounds:
             tag = shell.get("tag", "")
             if tag and tag not in shell_tags:
@@ -434,6 +617,13 @@ async def fetch_subscriptions(urls: list[str]) -> SubscriptionPayload:
                 if tag and tag not in seen:
                     seen.add(tag)
                     target.append(endpoint)
+        merged_count = (
+            len(merged_nodes)
+            + len(merged_shells)
+            + sum(len(items) for items in merged_endpoints.values())
+        )
+        if merged_count > MAX_MERGED_NODES:
+            raise HTTPException(413, "Merged node count limit exceeded")
 
     log.info(
         "Merged %d unique nodes and %d auxiliary outbounds from %d subscriptions",
@@ -763,6 +953,83 @@ def transform_for_router(config: dict) -> dict:
 # API
 # ══════════════════════════════════════════════════════════════════════
 
+def _bounded_text(value, field: str, max_bytes: int) -> str:
+    if not isinstance(value, str):
+        raise HTTPException(400, f"'{field}' must be a string")
+    if len(value.encode("utf-8")) > max_bytes:
+        raise HTTPException(413, f"'{field}' is too large")
+    return value.strip()
+
+
+def _normalize_merge_inputs(
+    *,
+    template_name,
+    urls,
+    raw,
+    expand,
+    limit,
+    profile,
+    single_url="",
+) -> tuple[str, list[str], str, bool, int, str]:
+    template_name = _bounded_text(
+        template_name, "template", MAX_TEMPLATE_NAME_BYTES
+    )
+    if not template_name:
+        raise HTTPException(400, "Missing 'template'")
+
+    raw = _bounded_text(raw, "raw", MAX_RAW_BYTES)
+    profile = _bounded_text(profile, "profile", MAX_PROFILE_BYTES)
+    if profile not in ALLOWED_PROFILES:
+        raise HTTPException(400, "Invalid profile")
+    if not isinstance(expand, bool):
+        raise HTTPException(400, "'expand' must be a boolean")
+    if isinstance(limit, bool) or not isinstance(limit, int):
+        raise HTTPException(400, "'limit' must be an integer")
+    if limit < 0 or limit > MAX_MERGED_NODES:
+        raise HTTPException(400, f"'limit' must be between 0 and {MAX_MERGED_NODES}")
+
+    if isinstance(urls, str):
+        urls = [urls]
+    elif not isinstance(urls, list):
+        raise HTTPException(400, "'urls' must be a string or list of strings")
+    if single_url:
+        if not isinstance(single_url, str):
+            raise HTTPException(400, "'url' must be a string")
+        urls = [*urls, single_url]
+
+    normalized_urls: list[str] = []
+    for value in urls:
+        normalized = _bounded_text(value, "url", MAX_URL_BYTES)
+        if normalized:
+            normalized_urls.append(normalized)
+    if len(normalized_urls) > MAX_SUBSCRIPTION_URLS:
+        raise HTTPException(413, "Too many subscription URLs")
+
+    return template_name, normalized_urls, raw, expand, limit, profile
+
+
+def _reject_oversized_request(request: Request) -> None:
+    headers = getattr(request, "headers", None)
+    content_length = headers.get("content-length") if headers is not None else None
+    if not content_length:
+        return
+    try:
+        size = int(content_length)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Invalid Content-Length")
+    if size < 0:
+        raise HTTPException(400, "Invalid Content-Length")
+    if size > MAX_REQUEST_BODY_BYTES:
+        raise HTTPException(413, "Request body is too large")
+
+
+def _enforce_request_node_limit(
+    nodes: list[dict], payload: SubscriptionPayload
+) -> None:
+    non_node_entries = subscription_payload_size(payload) - len(payload.nodes)
+    if len(nodes) + non_node_entries > MAX_MERGED_NODES:
+        raise HTTPException(413, "Merged node count limit exceeded")
+
 @app.get("/api/templates")
 async def api_templates():
     return list_templates()
@@ -774,27 +1041,23 @@ async def api_merge(request: Request):
     Body: {"urls": ["url1",...], "raw": "trojan://...", "template": "dualstack"}
     至少需要一个 url 或 raw
     """
+    _reject_oversized_request(request)
     try:
         data = await request.json()
     except Exception:
         raise HTTPException(400, "Invalid JSON body")
+    if not isinstance(data, dict):
+        raise HTTPException(400, "JSON body must be an object")
 
-    template_name = data.get("template", "").strip()
-    expand = data.get("expand", True)
-    limit = data.get("limit", 0)
-    profile = data.get("profile", "default")  # "ios" 触发裁剪
-    if not template_name:
-        raise HTTPException(400, "Missing 'template'")
-
-    urls = data.get("urls", [])
-    if isinstance(urls, str):
-        urls = [urls]
-    raw = data.get("raw", "").strip()
-
-    # 兼容单 url 字段
-    single = data.get("url", "").strip()
-    if single:
-        urls.append(single)
+    template_name, urls, raw, expand, limit, profile = _normalize_merge_inputs(
+        template_name=data.get("template", ""),
+        urls=data.get("urls", []),
+        raw=data.get("raw", ""),
+        expand=data.get("expand", True),
+        limit=data.get("limit", 0),
+        profile=data.get("profile", "default"),
+        single_url=data.get("url", ""),
+    )
 
     if not urls and not raw:
         raise HTTPException(400, "Need at least one subscription URL or raw nodes")
@@ -807,6 +1070,8 @@ async def api_merge(request: Request):
         try:
             subscription_payload = await fetch_subscriptions(urls)
             all_nodes.extend(subscription_payload.nodes)
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(502, f"Subscription fetch error: {e}")
 
@@ -818,6 +1083,7 @@ async def api_merge(request: Request):
             if n.get("tag") not in seen:
                 all_nodes.append(n)
                 seen.add(n.get("tag"))
+                _enforce_request_node_limit(all_nodes, subscription_payload)
 
     if limit > 0 and len(all_nodes) > limit:
         all_nodes = all_nodes[:limit]
@@ -850,25 +1116,35 @@ async def api_merge(request: Request):
 
 @app.get("/api/merge")
 async def api_merge_get(
-    url: str = Query("", description="Comma-separated subscription URLs"),
-    template: str = Query(..., description="Template name"),
-    raw: str = Query("", description="Raw node text"),
+    url: str = Query("", max_length=65536, description="Comma-separated subscription URLs"),
+    template: str = Query(..., max_length=MAX_TEMPLATE_NAME_BYTES, description="Template name"),
+    raw: str = Query("", max_length=MAX_RAW_BYTES, description="Raw node text"),
     expand: bool = Query(True, description="Expand selectors"),
-    limit: int = Query(0, description="Max nodes (0=all)"),
-    profile: str = Query("default", description="Profile (ios)"),
+    limit: int = Query(0, ge=0, le=MAX_MERGED_NODES, description="Max nodes (0=all)"),
+    profile: str = Query("default", max_length=MAX_PROFILE_BYTES, description="Profile"),
 ):
     """GET /api/merge?url=...&template=dualstack&profile=ios"""
+    raw_urls = [u.strip() for u in url.split(",") if u.strip()] if isinstance(url, str) else url
+    template, urls_list, raw, expand, limit, profile = _normalize_merge_inputs(
+        template_name=template,
+        urls=raw_urls,
+        raw=raw,
+        expand=expand,
+        limit=limit,
+        profile=profile,
+    )
+
     all_nodes: list[dict] = []
     subscription_payload = SubscriptionPayload()
 
-    if url:
-        urls_list = [u.strip() for u in url.split(",") if u.strip()]
-        if urls_list:
-            try:
-                subscription_payload = await fetch_subscriptions(urls_list)
-                all_nodes = list(subscription_payload.nodes)
-            except Exception as e:
-                raise HTTPException(502, f"Fetch error: {e}")
+    if urls_list:
+        try:
+            subscription_payload = await fetch_subscriptions(urls_list)
+            all_nodes = list(subscription_payload.nodes)
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(502, f"Fetch error: {e}")
 
     if raw:
         raw_nodes = parse_raw_nodes(raw)
@@ -876,6 +1152,7 @@ async def api_merge_get(
         for n in raw_nodes:
             if n.get("tag") not in seen:
                 all_nodes.append(n)
+                _enforce_request_node_limit(all_nodes, subscription_payload)
 
     if limit > 0 and len(all_nodes) > limit:
         all_nodes = all_nodes[:limit]

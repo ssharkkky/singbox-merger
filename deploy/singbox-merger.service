@@ -1,0 +1,41 @@
+[Unit]
+Description=Singbox Merger (immutable release)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=singbox-merger
+Group=singbox-merger
+WorkingDirectory=/opt/singbox-merger-deploy/current
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/singbox-merger-deploy/current/.venv/bin/python /opt/singbox-merger-deploy/current/main.py
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+TasksMax=64
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target
