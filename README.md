@@ -2,6 +2,13 @@
 
 `singbox-merger` 是一个 FastAPI 服务，用于拉取显式提供的 sing-box 订阅、解析节点并注入 JSON 模板。它提供 Web UI、`GET/POST /api/merge` 和 `/api/templates`。
 
+内置模板：
+
+- `dualstack`：UDP 请求路由到当前选择的出站，适用于确认所选节点支持 UDP 的订阅，也是默认模板。
+- `tcp-only`：UDP 请求明确拒绝，适用于包含不支持 UDP 节点的订阅。
+
+模板名称通过 `template` 参数选择，`/api/templates` 会返回可用模板及其说明。
+
 ## 安全边界
 
 - 订阅地址只允许 HTTP(S) 且所有解析结果必须是公网地址。
@@ -31,6 +38,12 @@ curl -sS http://127.0.0.1:25600/api/templates
 
 curl -sS -H 'Content-Type: application/json' \
   --data '{"raw":"trojan://example","template":"dualstack"}' \
+  http://127.0.0.1:25600/api/merge
+
+# TCP-only variant
+curl -sS -G \
+  --data-urlencode 'template=tcp-only' \
+  --data-urlencode 'url=https://example.com/sub' \
   http://127.0.0.1:25600/api/merge
 ```
 

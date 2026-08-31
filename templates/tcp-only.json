@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "description": "dualstack（UDP 启用）"
+    "description": "仅 TCP（UDP 禁用，兼容节点）"
   },
   "log": {
     "disabled": false,
@@ -289,8 +289,7 @@
       },
       {
         "network": "udp",
-        "outbound": "🚀 节点选择",
-        "action": "route"
+        "action": "reject"
       },
       {
         "rule_set": [
