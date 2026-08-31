@@ -47,9 +47,9 @@ class TemplateTests(unittest.TestCase):
             },
             enabled["route"]["rules"][1],
         )
-        self.assertFalse(
-            any(rule.get("user") == ["nativeudp"]
-                for rule in disabled["route"]["rules"])
+        self.assertEqual(
+            enabled["route"]["rules"][1],
+            disabled["route"]["rules"][1],
         )
 
     def test_templates_are_valid_json(self):
