@@ -35,6 +35,23 @@ class TemplateTests(unittest.TestCase):
             udp_rules(enabled),
         )
 
+    def test_dualstack_direct_routes_native_udp_client(self):
+        enabled = main.load_template("dualstack")
+        disabled = main.load_template("tcp-only")
+
+        self.assertEqual(
+            {
+                "user": ["nativeudp"],
+                "outbound": "DIRECT",
+                "action": "route",
+            },
+            enabled["route"]["rules"][1],
+        )
+        self.assertFalse(
+            any(rule.get("user") == ["nativeudp"]
+                for rule in disabled["route"]["rules"])
+        )
+
     def test_templates_are_valid_json(self):
         for path in Path(main.TEMPLATES_DIR).glob("*.json"):
             with self.subTest(path=path.name):

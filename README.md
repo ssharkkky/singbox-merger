@@ -7,6 +7,8 @@
 - `dualstack`：UDP 请求路由到当前选择的出站，适用于确认所选节点支持 UDP 的订阅，也是默认模板。
 - `tcp-only`：UDP 请求明确拒绝，适用于包含不支持 UDP 节点的订阅。
 
+`dualstack` 还包含一条按 Unix 用户 `nativeudp` 匹配的 `DIRECT` 路由，供本机 Native Naive 客户端建立外层连接时避开透明代理回环；其他系统或未使用该用户的客户端不会命中此规则。
+
 模板名称通过 `template` 参数选择，`/api/templates` 会返回可用模板及其说明。
 
 ## 安全边界

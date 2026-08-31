@@ -222,6 +222,13 @@
         "action": "sniff"
       },
       {
+        "user": [
+          "nativeudp"
+        ],
+        "outbound": "DIRECT",
+        "action": "route"
+      },
+      {
         "action": "hijack-dns",
         "protocol": "dns"
       },
